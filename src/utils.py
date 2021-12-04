@@ -1177,7 +1177,6 @@ def visualize_save_embedding(X, y, encoder, title, path, markers = None):
     
     plt.title(title)
     plt.savefig(path)
-    plt.show()
 
 def model_variances(path, tries):
     misclass_arr = []
