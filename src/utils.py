@@ -699,11 +699,7 @@ class MarkerMap(VAE_Gumbel_RunningState):
         mu_latent, logvar_latent = self.encode(x, training_phase = training_phase)
         z = self.reparameterize(mu_latent, logvar_latent)
         # mu_latent is used for the classifier and z for the VAE
-        if self.loss_tradeoff != 1 and self.classification_decoder is not None:
-            mu_x, log_probs = self.decode(mu_latent, z)
-        else:
-            mu_x = None
-            log_probs = None
+        mu_x, log_probs = self.decode(mu_latent, z)
 
         if self.loss_tradeoff != 0:
             logvar_x = self.dec_logvar(z)
