@@ -1210,7 +1210,6 @@ def graph_umap_embedding(data, labels, title, encoder):
     cbar.ax.set_yticklabels(encoder.classes_)
     
     plt.title(title)
-    plt.show()
 
 
 def plot_confusion_matrix(cm,
