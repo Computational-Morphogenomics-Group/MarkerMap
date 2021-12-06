@@ -1163,21 +1163,21 @@ def visualize_save_embedding(X, y, encoder, title, path, markers = None):
     if markers is not None:
         X = X[:, markers]
     num_classes = len(encoder.classes_)
-    print('embed')
+    #print('embed')
     embedding = umap.UMAP(n_neighbors=10, min_dist= 0.05).fit_transform(X)
     
     
     fig, ax = plt.subplots(1, figsize=(12, 8.5))
     
-    print('scatter')
+    #print('scatter')
     plt.scatter(*embedding.T, c = y)
     # plt.setp(ax, xticks=[], yticks=[])
     
-    print('color')
+    #print('color')
     cbar = plt.colorbar(ticks=np.arange(num_classes))#, boundaries = np.arange(num_classes) - 0.5)
     cbar.ax.set_yticklabels(encoder.classes_)
     
-    print('save')
+    #print('save')
     plt.title(title)
     plt.savefig(path)
     plt.close(fig)
