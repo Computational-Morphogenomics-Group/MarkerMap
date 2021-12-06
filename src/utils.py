@@ -657,16 +657,18 @@ class MarkerMap(VAE_Gumbel_RunningState):
             bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1, loss_tradeoff = 0.5):
 
         
+        assert loss_tradeoff <= 1
+        assert loss_tradeoff >= 0
+        if num_classes is None:
+            assert loss_tradeoff == 1
+
         super(MarkerMap, self).__init__(input_size = input_size, hidden_layer_size = hidden_layer_size, 
                 z_size = z_size, k = k, t = t, temperature_decay = temperature_decay, 
                 method = method, alpha = alpha, batch_norm = batch_norm, bias = bias, lr = lr, kl_beta = kl_beta)
 
         self.save_hyperparameters()
         self.num_classes = num_classes
-        self.loss_tradeoff = loss_tradeoff
-
-        if num_classes is None:
-            assert loss_tradeoff == 1
+        self.register_buffer('loss_tradeoff', torch.as_tensor(1.0 * loss_tradeoff))
 
         if num_classes is None:
             self.classification_decoder = None
@@ -678,9 +680,6 @@ class MarkerMap(VAE_Gumbel_RunningState):
                     nn.LogSoftmax(dim = 1)
                     )
             self.classification_loss = nn.NLLLoss(reduction = 'sum')
-
-        assert loss_tradeoff <= 1
-        assert loss_tradeoff >= 0
 
 
     def decode(self, mu_z, z):
@@ -977,7 +976,7 @@ def train_model(model, train_dataloader, val_dataloader, gpus = None, tpu_cores 
     trainer = pl.Trainer(gpus = gpus, tpu_cores = tpu_cores, min_epochs = min_epochs, max_epochs = max_epochs, 
             auto_lr_find=auto_lr, callbacks=[early_stopping_callback], precision = precision, logger = verbose,
             # turn off some summaries
-            weights_summary = None, enable_progress_bar = verbose)
+            enable_model_summary=verbose, enable_progress_bar = verbose)
     if auto_lr:
         # for some reason plural val_dataloaders
         lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode, num_training = num_lr_rates)
