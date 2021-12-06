@@ -977,7 +977,7 @@ def train_model(model, train_dataloader, val_dataloader, gpus = None, tpu_cores 
     trainer = pl.Trainer(gpus = gpus, tpu_cores = tpu_cores, min_epochs = min_epochs, max_epochs = max_epochs, 
             auto_lr_find=auto_lr, callbacks=[early_stopping_callback], precision = precision, logger = verbose,
             # turn off some summaries
-            progress_bar_refresh_rate=0, weights_summary = None)
+            weights_summary = None, enable_progress_bar = verbose)
     if auto_lr:
         # for some reason plural val_dataloaders
         lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode, num_training = num_lr_rates)
