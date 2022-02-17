@@ -334,16 +334,31 @@ class VAE_l1_diag(VAE):
 
 
 def gumbel_keys(w, EPSILON):
-    # sample some gumbels
+    """
+    Sample some gumbels, adapted from
+    https://github.com/ermongroup/subsets/blob/master/subsets/sample_subsets.py
+    Args:
+        w (Tensor): Weights for each element, interpreted as log probabilities
+        epsilon (float): min difference for float equalities
+    """
     uniform = (1.0 - EPSILON) * torch.rand_like(w) + EPSILON
     z = -torch.log(-torch.log(uniform))
     w = w + z
     return w
 
 
-#equations 3 and 4 and 5
-# separate true is for debugging
 def continuous_topk(w, k, t, device, separate=False, EPSILON = EPSILON):
+    """
+    Continuous relaxation of discrete variables, equations 3, 4, and 5
+    Args:
+        w (Tensor): Float Tensor of weights for each element. In gumbel mode
+            these are interpreted as log probabilities
+        k (int): number of elements in the subset sample
+        t (float): temperature of the softmax
+        separate (bool): defaults to false, swap to true for debugging
+        epsilon (float): min difference for float equalities
+    """
+
     # https://github.com/ermongroup/subsets/blob/master/subsets/sample_subsets.py 
     if separate:
         khot_list = []
@@ -369,19 +384,19 @@ def continuous_topk(w, k, t, device, separate=False, EPSILON = EPSILON):
             relaxed_k = relaxed_k + onehot_approx
         return relaxed_k
 
-# separate true is for debugging
-# good default value of t looks lke 0.0001
-# but let the constructor of the VAE gumbel decide that
+
 def sample_subset(w, k, t, device, separate = False, gumbel = True, EPSILON = EPSILON):
-    '''
+    """
+    Sample k elements using the continuous relaxation of discrete variables.
+    A good default value of t is 0.0001, but let VAE gumbel constructor decide that.
+    Adapted from: https://github.com/ermongroup/subsets/blob/master/subsets/sample_subsets.py
     Args:
         w (Tensor): Float Tensor of weights for each element. In gumbel mode
             these are interpreted as log probabilities
         k (int): number of elements in the subset sample
         t (float): temperature of the softmax
-    '''
-    #print('w before gumbel noise')
-    #print(w)
+        separate (bool): defaults to false, swap to true for debugging
+    """
     assert EPSILON > 0
     if gumbel:
         w = gumbel_keys(w, EPSILON)
@@ -1332,11 +1347,18 @@ def process_data(X, Y, filter_data = False):
 
     return np.assarray(aData.X.copy()), Y
 
-# given a n
-# num_workers=0 means load in main process
-### Assuming you have test set split somewhere else
-## data is already pre-processed
 def split_data_into_dataloaders_no_test(X, Y, train_size, batch_size = 64, num_workers = 0, seed = None):
+    """
+    Split X and Y into training set (fraction train_size) and the rest into a validation
+    set. This assumes that you have already set aside a test set.
+    Args:
+        X (array): Input data
+        Y (vector): Output labels
+        train_size (float): 0 to 1, fraction of data for train set, remainder is validation set
+        batch_size (int): defaults to 64
+        num_workers (int): number of cores for multi-threading, defaults to 0 for no multi-threading
+        seed (int): defaults to none, set to reproduce experiments with same train/val split
+    """
     if Y is not None:
         assert len(X) == len(Y)
     assert batch_size > 1
@@ -1378,8 +1400,20 @@ def split_data_into_dataloaders_no_test(X, Y, train_size, batch_size = 64, num_w
         
     return train_dataloader, val_dataloader, train_indices, val_indices
 
-# above is used when only passing all data
+#TODO: extract functionality of this and " "_no_test to a helper function, code reuse
 def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, num_workers = 0, seed = None):
+    """
+    Split X and Y into training set (fraction train_size), validation set (fraction val_size)
+    and the rest into a test set. train_size + val_size must be less than 1.
+    Args:
+        X (array): Input data
+        y (vector): Output labels
+        train_size (float): 0 to 1, fraction of data for train set
+        val_size (float): 0 to 1, fraction of data for validation set
+        batch_size (int): defaults to 64
+        num_workers (int): number of cores for multi-threading, defaults to 0 for no multi-threading
+        seed (int): defaults to none, set to reproduce experiments with same train/val split
+    """
     assert train_size + val_size < 1
     assert len(X) == len(y)
     assert batch_size > 1
