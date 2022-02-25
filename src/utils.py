@@ -994,7 +994,7 @@ def train_model(model, train_dataloader, val_dataloader, gpus = None, tpu_cores 
             enable_model_summary=verbose, enable_progress_bar = verbose)
     if auto_lr:
         # for some reason plural val_dataloaders
-        lr_finder = trainer.tuner.lr_find(model, train_dataloader = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode, num_training = num_lr_rates)
+        lr_finder = trainer.tuner.lr_find(model, train_dataloaders = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode, num_training = num_lr_rates)
     
     
         if verbose:
@@ -1154,9 +1154,19 @@ def confusion_matrix_orig_recon(train_data, train_labels, test_data, test_labels
     print("Accuracy {}".format(accuracy_recon_markers))
 
 
-# new set of functions from wrapping everything up
-
 def new_model_metrics(train_x, train_y, test_x, test_y, markers = None, model = None):
+    """
+    Trains and tests a specified model (or RandomForest, if none specified) with a subset of the dimensions
+    specified by the indices in the markers array. Returns the error rate, a testing report, and a confusion
+    matrix of the results.
+    Args:
+        train_x: (numpy array) the training data input
+        train_y: (numpy array) the training data labels
+        test_x: (numpy array) testing data input
+        test_y: (numpy array) testing data labels
+        markers: (numpy array) marker indices, a subset of the column indices of train_x/test_x, defaults to all
+        model: model to train and test on, defaults to RandomForest
+    """
     if markers is not None:
         train_x = train_x[:, markers]
         test_x = test_x[:, markers]
