@@ -233,16 +233,6 @@ class GumbelClassifier(pl.LightningModule):
         return inds_running_state
 
 
-class Benchmarker():
-    def __init__(self, classname, create_args, create_kwargs):
-        self.classname = classname
-        self.create_args = create_args
-        self.create_kwargs = create_kwargs
-
-    def create(self, *args, **kwargs):
-        return self.classname(self.create_args   **{**self.create_args, **kwargs})
-
-
 class VAE(pl.LightningModule):
     def __init__(self, input_size, hidden_layer_size, z_size, output_size = None, bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1):
         super(VAE, self).__init__()
@@ -1035,7 +1025,7 @@ def train_model(model, train_dataloader, val_dataloader, gpus = None, tpu_cores 
 
     model.train()
     trainer.fit(model, train_dataloader, val_dataloader)
-    return model, trainer
+    return trainer
 
 def save_model(trainer, base_path):
     # make directory
@@ -1053,7 +1043,7 @@ def train_save_model(model, train_data, val_data, base_path, min_epochs, max_epo
         gpus = None, tpu_cores = None, precision = 32, verbose = False):
     trainer = train_model(model, train_data, val_data, gpus=gpus, tpu_cores=tpu_cores, 
             min_epochs = min_epochs, max_epochs = max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explore_mode, 
-            early_stopping_patience=early_stopping_patience, num_lr_rates = 100, precision = precision, verbose = verbose)[1]
+            early_stopping_patience=early_stopping_patience, num_lr_rates = 100, precision = precision, verbose = verbose)
     save_model(trainer, base_path)
     return trainer
 
