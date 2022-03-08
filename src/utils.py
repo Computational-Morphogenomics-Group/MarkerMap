@@ -32,6 +32,7 @@ import scanpy as sc
 
 
 import logging
+from functools import partial
 
 
 # rounding up lowest float32 on my system
@@ -230,6 +231,16 @@ class GumbelClassifier(pl.LightningModule):
         inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
 
         return inds_running_state
+
+
+class Benchmarker():
+    def __init__(self, classname, create_args, create_kwargs):
+        self.classname = classname
+        self.create_args = create_args
+        self.create_kwargs = create_kwargs
+
+    def create(self, *args, **kwargs):
+        return self.classname(self.create_args   **{**self.create_args, **kwargs})
 
 
 class VAE(pl.LightningModule):
@@ -781,7 +792,7 @@ class MarkerMap(VAE_Gumbel_RunningState):
         assert train_ratio >= 0
         assert train_ratio <= 1
         train_dataloader, val_dataloader, train_indices, val_indices = split_data_into_dataloaders_no_test(X, Y, train_size = train_ratio)
-        fit_trainer = train_model(self, train_dataloader, val_dataloader, gpus = gpus, min_epochs = min_epochs, max_epochs = max_epochs)
+        train_model(self, train_dataloader, val_dataloader, gpus = gpus, min_epochs = min_epochs, max_epochs = max_epochs)
         markers = self.markers()
         # train additional model 
         
@@ -813,6 +824,17 @@ class MarkerMap(VAE_Gumbel_RunningState):
         with torch.no_grad():
             log_probs = self.predict_logprob(X)
         return log_probs.max(dim=1)[1].cpu().numpy()
+
+
+    def benchmarkerFunctional(create_kwargs, train_kwargs, k, train_dataloader, val_dataloader):
+        model = MarkerMap(**{**create_kwargs, 'k': k})
+        train_model(model, train_dataloader, val_dataloader, **train_kwargs)
+        return model.markers().clone().cpu().detach().numpy()
+
+    def getBenchmarker(create_kwargs, train_kwargs):
+        return partial(MarkerMap.benchmarkerFunctional, create_kwargs, train_kwargs)
+
+        # return lambda k, train_dataloader, val_dataloader: train_model(MarkerMap(**{**create_kwargs, 'k': k}),train_dataloader, val_dataloader, **train_kwargs)[0].markers().clone().cpu().detach().numpy()
 
 
 # NMSL is Not My Selection Layer
@@ -1013,7 +1035,7 @@ def train_model(model, train_dataloader, val_dataloader, gpus = None, tpu_cores 
 
     model.train()
     trainer.fit(model, train_dataloader, val_dataloader)
-    return trainer
+    return model, trainer
 
 def save_model(trainer, base_path):
     # make directory
@@ -1031,7 +1053,7 @@ def train_save_model(model, train_data, val_data, base_path, min_epochs, max_epo
         gpus = None, tpu_cores = None, precision = 32, verbose = False):
     trainer = train_model(model, train_data, val_data, gpus=gpus, tpu_cores=tpu_cores, 
             min_epochs = min_epochs, max_epochs = max_epochs, auto_lr = auto_lr, max_lr = max_lr, lr_explore_mode = lr_explore_mode, 
-            early_stopping_patience=early_stopping_patience, num_lr_rates = 100, precision = precision, verbose = verbose)
+            early_stopping_patience=early_stopping_patience, num_lr_rates = 100, precision = precision, verbose = verbose)[1]
     save_model(trainer, base_path)
     return trainer
 
@@ -1216,6 +1238,68 @@ def model_variances(path, tries):
         weight_f1_arr.append(results[1]['weighted avg']['f1-score'])
     return np.mean(misclass_arr), np.mean(weight_f1_arr), np.std(misclass_arr), np.std(weight_f1_arr)
 
+
+def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0.1, batch_size = 64, k_range=None):
+    """
+    Benchmark a collection of models by a benchmark param on data X,y
+    args:
+        models (dict): maps model labels to a function that runs the model on the data and returns markers
+            use model.getBenchmarker() to automatically generate those functions
+        num_times (int): number of random data splits to run the model on
+        X (array): Input data
+        y (vector): Output labels
+        benchmark (string): type of benchmarking to do, must be one of {"k"}
+        train_size (float): 0 to 1, fraction of data for train set, defaults to 0.7
+        val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
+        batch_size (int): defaults to 64
+        k_range (array): when benchmarking on k, this is what you range over, defaults to none
+    """
+    if benchmark != 'k':
+        raise Exception('benchmark: Possible choices of benchmark are "k"')
+
+    if benchmark == 'k' and not k_range:
+        raise Exception('benchmark: When benchmarking over "k", please provide k_range')
+
+
+    results = {}
+    for i in range(num_times):
+        train_dataloader, val_dataloader, test_dataloader, train_indices, val_indices, test_indices = split_data_into_dataloaders(
+            X,
+            y,
+            train_size,
+            val_size,
+            batch_size=batch_size,
+            # num_workers=num_workers,
+        )
+
+        #recombine train and val for methods that don't use a val set, and for training model after finding markers
+        X_train = X[np.concatenate([train_indices, val_indices]), :]
+        y_train = y[np.concatenate([train_indices, val_indices])]
+        X_test = X[test_indices,:]
+        y_test = y[test_indices]
+
+        for label, model_functional in models.items():
+
+            if k_range:
+                k_range_results = []
+                for k in k_range:
+                    markers = model_functional(k, train_dataloader, val_dataloader)
+                    model_misclass, _, _ = new_model_metrics(X_train, y_train, X_test, y_test, markers = markers)
+
+                    k_range_results.append(model_misclass)
+
+                k_range_results_ndarray = np.array(k_range_results).reshape((1,len(k_range_results)))
+                if label not in results:
+                    results[label] = k_range_results_ndarray
+                else:
+                    results[label] = np.append(results[label], k_range_results_ndarray, axis=0)
+
+    if k_range:
+        return results, 'k', k_range
+    else:
+        return results, None
+
+
 #######
 
 
@@ -1304,6 +1388,39 @@ def plot_confusion_matrix(cm,
         plt.savefig(save_path, bbox_inches='tight')
     plt.show()
 
+
+def plot_benchmarks(results, benchmark_label, benchmark_range, show_stdev=False):
+    """
+    Plot benchmark results of multiple models over the values that you are benchmarking on
+    args:
+        results (dict): maps model label to np.array of the results with shape (num_runs x benchmark levels)
+        benchmark label (string): what you are benchmarking over, will be the x_label
+        benchmark_range (array): values that you are benchmarking over
+        show_stdev (bool): whether to show fill_between range of 1 stdev over the num_runs, defaults to false
+    """
+    markers = ['.','o','v','^','<','>','8','s','p','P','*','h','H','+','x','X','D','d','|','_','1','2','3','4',',']
+    fig1, ax1 = plt.subplots()
+    i = 0
+    num_runs = 1
+    for label, result in results.items():
+        num_runs = result.shape[0]
+        mean_result = result.mean(axis=0)
+
+        #only show standard deviation if there we multiple runs
+        if show_stdev and result.shape[0] > 1:
+            stdev = result.std(axis=0)
+            ax1.fill_between(benchmark_range, mean_result - stdev, mean_result + stdev, alpha=0.2)
+
+        #plot the results for this model against the benchmarked range
+        ax1.plot(benchmark_range, mean_result, label=label, marker=markers[i])
+        i = (i+1) % len(markers)
+
+    ax1.set_title(f'Misclass Benchmark, over {num_runs} runs')
+    ax1.set_xlabel(benchmark_label)
+    ax1.set_ylabel('Misclass Rate')
+    ax1.legend()
+
+    plt.show()
 
 ###
     
