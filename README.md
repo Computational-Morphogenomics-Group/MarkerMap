@@ -1,5 +1,9 @@
 # MarkerMap
 
+## Features
+
+- The MarkerMap package provides functionality to easily benchmark different marker selection methods to evaluate performance under a number of metrics. Each model has a `getBenchmarker` function which takes model constructor parameters and trainer parameters and returns a model function. The `benchmark` function then takes all these model functions, a dataset, and the desired type of benchmarking and runs all the models to easily compare performance. See `scripts/benchmark_k` for examples.
+
 ## Setup 
 
 ### MacOS 

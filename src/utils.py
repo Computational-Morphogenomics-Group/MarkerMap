@@ -824,8 +824,6 @@ class MarkerMap(VAE_Gumbel_RunningState):
     def getBenchmarker(create_kwargs, train_kwargs):
         return partial(MarkerMap.benchmarkerFunctional, create_kwargs, train_kwargs)
 
-        # return lambda k, train_dataloader, val_dataloader: train_model(MarkerMap(**{**create_kwargs, 'k': k}),train_dataloader, val_dataloader, **train_kwargs)[0].markers().clone().cpu().detach().numpy()
-
 
 # NMSL is Not My Selection Layer
 # Implementing reference paper

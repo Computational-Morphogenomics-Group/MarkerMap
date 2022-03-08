@@ -24,9 +24,8 @@ batch_norm = True
 
 global_t = 3.0
 
-# k_range = [10, 25, 50, 100, 250]
-k_range = [10, 25]
-num_times = 1
+k_range = [10, 25, 50, 100, 250]
+num_times = 3
 max_epochs = 100
 
 #pytorch lightning stuff
