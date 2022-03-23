@@ -1,10 +1,6 @@
 import sys
-import multiprocessing
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
-import smashpy
-from lassonet import LassoNetClassifier
-import matplotlib.pyplot as plt
 
 sys.path.insert(1, './src/')
 from utils import *
@@ -35,14 +31,7 @@ max_epochs = 100
 
 #pytorch lightning stuff
 gpus = None
-tpu_cores = None
 precision=32
-
-# The smashpy methods set global seeds that mess with sampling. These seeds are used
-# to stop those methods from using the same global seed over and over.
-possible_seeds = np.random.randint(low=1, high = 1000000, size = 400)
-seed_index = 0
-num_workers = multiprocessing.cpu_count()
 
 # pre-process the data
 adata = sc.read_h5ad('data/zeisel/Zeisel.h5ad')
@@ -55,6 +44,7 @@ encoder.fit(labels)
 y = encoder.transform(labels)
 input_size = X.shape[1]
 
+# Declare models
 unsupervised_mm = MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
@@ -171,13 +161,13 @@ global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
 
 misclass_rates, benchmark_label, benchmark_range = benchmark(
   {
-    # UNSUP_MM: unsupervised_mm,
-    # SUP_MM: supervised_mm,
-    # MIXED_MM: mixed_mm,
+    UNSUP_MM: unsupervised_mm,
+    SUP_MM: supervised_mm,
+    MIXED_MM: mixed_mm,
     BASELINE: RandomBaseline.getBenchmarker(),
-    # LASSONET: LassoNetWrapper.getBenchmarker(),
+    LASSONET: LassoNetWrapper.getBenchmarker(),
     CONCRETE_VAE: concrete_vae,
-    # GLOBAL_GATE: global_gate,
+    GLOBAL_GATE: global_gate,
   },
   num_times,
   X,
