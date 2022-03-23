@@ -688,7 +688,7 @@ class VAE_Gumbel_GlobalGate(VAE):
         y_val,
         train_dataloader,
         val_dataloader,
-        k,
+        k=None,
     ):
         """
         Class function that initializes, trains, and returns markers for the provided data with the specific params
@@ -785,7 +785,7 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         y_val,
         train_dataloader,
         val_dataloader,
-        k,
+        k=None,
     ):
         """
         Class function that initializes, trains, and returns markers for the provided data with the specific params
@@ -1394,7 +1394,8 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
         val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
         batch_size (int): defaults to 64
         k_range (array): when benchmarking on k, this is what you range over, defaults to none
-    returns: (dict)
+    returns:
+        (dict): maps model labels to an np.array (num_times x benchmark_levels) of misclass rates
     """
     if benchmark != 'k':
         raise Exception('benchmark: Possible choices of benchmark are "k"')
@@ -1430,7 +1431,8 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
                 k_range_results = []
                 for k in k_range:
                     markers = model_functional(X_train, y_train, X_val, y_val, train_dataloader, val_dataloader, k=k)
-                    model_misclass, test_rep, cm = new_model_metrics(
+                    # TODO: incorporate test_rep, cm
+                    model_misclass, _, _ = new_model_metrics(
                         X_train_val,
                         y_train_val,
                         X_test,
@@ -1575,9 +1577,9 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
         ax1.plot(benchmark_range, mean_result, label=label, marker=markers[i])
         i = (i+1) % len(markers)
 
-    ax1.set_title(f'Misclass Benchmark, over {num_runs} runs')
+    ax1.set_title(f'{mode.capitalize()} Benchmark, over {num_runs} runs')
     ax1.set_xlabel(benchmark_label)
-    ax1.set_ylabel('Misclass Rate')
+    ax1.set_ylabel(mode.capitalize())
     ax1.legend()
 
     plt.show()

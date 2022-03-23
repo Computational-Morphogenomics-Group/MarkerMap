@@ -6,9 +6,6 @@ import smashpy
 from lassonet import LassoNetClassifier
 import matplotlib.pyplot as plt
 
-# Pytorch imports
-import torch
-
 sys.path.insert(1, './src/')
 from utils import *
 
@@ -33,7 +30,7 @@ batch_norm = True
 global_t = 3.0
 
 k_range = [10, 25, 50, 100, 250]
-num_times = 1
+num_times = 3
 max_epochs = 100
 
 #pytorch lightning stuff
@@ -298,7 +295,4 @@ misclass_rates, benchmark_label, benchmark_range = benchmark(
   k_range=k_range,
 )
 
-plot_benchmarks(misclass_rates, benchmark_label, benchmark_range, show_stdev=True)
-
-
-
+plot_benchmarks(misclass_rates, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)
