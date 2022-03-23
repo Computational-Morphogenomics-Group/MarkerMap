@@ -49,3 +49,15 @@ class TestPlotBenchmarks:
 
     with plt.ion():
       plot_benchmarks(misclass_rates, 'k', benchmark_range=[10, 25, 50, 100])
+
+  def test_modes(self):
+    misclass_rates = {
+      'Supervised Marker Map': np.array([[0.18801997, 0.23460899]]),
+      'Mixed Marker Map': np.array([[0.19966722, 0.26622296]])
+    }
+
+    with plt.ion():
+      plot_benchmarks(misclass_rates, 'k', mode='misclass', benchmark_range=[10,25])
+      plot_benchmarks(misclass_rates, 'k', mode='accuracy', benchmark_range=[10,25])
+      with pytest.raises(Exception):
+        plot_benchmarks(misclass_rates, 'k', mode='fake_mode', benchmark_range=[10,25])
