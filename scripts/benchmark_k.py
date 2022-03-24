@@ -15,6 +15,7 @@ UNSUP_MM = 'Unsupervised Marker Map'
 SUP_MM = 'Supervised Marker Map'
 MIXED_MM = 'Mixed Marker Map'
 CONCRETE_VAE = 'Concrete VAE'
+LASSONET = 'LassoNet'
 
 z_size = 16
 hidden_layer_size = 256
@@ -31,7 +32,6 @@ max_epochs = 100
 #pytorch lightning stuff
 gpus = None
 precision=32
-
 
 # pre-process the data
 adata = sc.read_h5ad('data/zeisel/Zeisel.h5ad')
@@ -115,11 +115,59 @@ mixed_mm = MarkerMap.getBenchmarker(
   }
 )
 
+concrete_vae = ConcreteVAE_NMSL.getBenchmarker(
+  create_kwargs = {
+    'input_size': input_size,
+    'hidden_layer_size': hidden_layer_size,
+    'z_size': z_size,
+    'k': 25,
+    't': global_t,
+    'batch_norm': batch_norm,
+  },
+  train_kwargs = {
+    'gpus': gpus,
+    'min_epochs': 25,
+    'max_epochs': max_epochs,
+    'auto_lr': True,
+    'max_lr': 0.0001,
+    'lr_explore_mode': 'linear',
+    'num_lr_rates': 500,
+    'precision': precision,
+  }
+)
+
+global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
+  create_kwargs = {
+    'input_size': input_size,
+    'hidden_layer_size': hidden_layer_size,
+    'z_size': z_size,
+    'k': 25,
+    't': global_t,
+    'temperature_decay': 0.95,
+    'batch_norm': batch_norm,
+  },
+  train_kwargs = {
+    'gpus': gpus,
+    'min_epochs': 25,
+    'max_epochs': max_epochs,
+    'auto_lr': True,
+    'max_lr': 0.00001,
+    'early_stopping_patience': 10,
+    'lr_explore_mode': 'linear',
+    'num_lr_rates': 500,
+    'precision': precision,
+  }
+)
+
 misclass_rates, benchmark_label, benchmark_range = benchmark(
   {
     UNSUP_MM: unsupervised_mm,
     SUP_MM: supervised_mm,
     MIXED_MM: mixed_mm,
+    BASELINE: RandomBaseline.getBenchmarker(),
+    LASSONET: LassoNetWrapper.getBenchmarker(),
+    CONCRETE_VAE: concrete_vae,
+    GLOBAL_GATE: global_gate,
   },
   num_times,
   X,
@@ -128,4 +176,4 @@ misclass_rates, benchmark_label, benchmark_range = benchmark(
   k_range=k_range,
 )
 
-plot_benchmarks(misclass_rates, benchmark_label, benchmark_range, show_stdev=True)
+plot_benchmarks(misclass_rates, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)

@@ -1,7 +1,7 @@
 .ipynb_checkpoints
 __pycache__
 data
-notebooks/Figures
-notebooks/weights
-notebooks/checkpoints
+Figures
+weights
+checkpoints
 .DS_Store

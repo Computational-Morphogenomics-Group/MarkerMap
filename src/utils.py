@@ -30,6 +30,7 @@ import matplotlib.pyplot as plt
 
 import scanpy as sc
 
+from lassonet import LassoNetClassifier
 
 import logging
 from functools import partial
@@ -232,8 +233,89 @@ class GumbelClassifier(pl.LightningModule):
 
         return inds_running_state
 
+class BenchmarkableModel():
+    @classmethod
+    def getBenchmarker(cls, create_kwargs={}, train_kwargs={}):
+        """
+        Returns a function used by the the benchmarker to intialize and train model, then return markers
+        args:
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+        """
+        return partial(cls.benchmarkerFunctional, create_kwargs, train_kwargs)
 
-class VAE(pl.LightningModule):
+
+class RandomBaseline(BenchmarkableModel):
+    """
+    Model that just returns a random set of indices, used as a baseline for benchmarking purposes
+    """
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        train_dataloader,
+        val_dataloader,
+        **kwargs,
+    ):
+        """
+        Static function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            train_data ():
+            val_data ():
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
+        """
+        all_kwargs = {**create_kwargs, **train_kwargs, **kwargs}
+        return np.random.permutation(range(X_train.shape[1]))[:all_kwargs['k']]
+
+
+class LassoNetWrapper(LassoNetClassifier, BenchmarkableModel):
+    """
+    Thin wrapper on the LassoNetClassifier that implements the BenchmarkableModel functionality
+    """
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        train_dataloader,
+        val_dataloader,
+        k=None
+    ):
+        """
+        Function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            train_data ():
+            val_data ():
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
+        """
+        if not k:
+            k = train_kwargs['k']
+
+        model = LassoNetClassifier(**create_kwargs)
+        model.path(X_train, y_train, X_val = X_val, y_val = y_val)
+        return torch.argsort(model.feature_importances_, descending = True).cpu().numpy()[:k]
+
+
+class VAE(pl.LightningModule, BenchmarkableModel):
     def __init__(self, input_size, hidden_layer_size, z_size, output_size = None, bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1):
         super(VAE, self).__init__()
         self.save_hyperparameters()
@@ -595,6 +677,33 @@ class VAE_Gumbel_GlobalGate(VAE):
 
         return inds_global_gate
 
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        train_dataloader,
+        val_dataloader,
+        k=None,
+    ):
+        """
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            k (int): k value for the model, the number of markers to select
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+        """
+        model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
+        train_model(model, train_dataloader, val_dataloader, **train_kwargs)
+        return model.markers().clone().cpu().detach().numpy()
+
+
     
 # idea of having a Non Instance Wise Gumbel that also has a state to keep consistency across batches
 # probably some repetititon of code, but the issue is this class stuff, this is python 3 tho so it can be put into a good wrapper
@@ -664,6 +773,33 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
 
         return inds_running_state
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        train_dataloader,
+        val_dataloader,
+        k=None,
+    ):
+        """
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            k (int): k value for the model, the number of markers to select
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+        """
+        model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
+        train_model(model, train_dataloader, val_dataloader, **train_kwargs)
+        return model.markers().clone().cpu().detach().numpy()
+
 
 # not doing multiple inheritance because GumbelClassifier is repeating itself
 class MarkerMap(VAE_Gumbel_RunningState):
@@ -816,15 +952,6 @@ class MarkerMap(VAE_Gumbel_RunningState):
         return log_probs.max(dim=1)[1].cpu().numpy()
 
 
-    def benchmarkerFunctional(create_kwargs, train_kwargs, k, train_dataloader, val_dataloader):
-        model = MarkerMap(**{**create_kwargs, 'k': k})
-        train_model(model, train_dataloader, val_dataloader, **train_kwargs)
-        return model.markers().clone().cpu().detach().numpy()
-
-    def getBenchmarker(create_kwargs, train_kwargs):
-        return partial(MarkerMap.benchmarkerFunctional, create_kwargs, train_kwargs)
-
-
 # NMSL is Not My Selection Layer
 # Implementing reference paper
 class ConcreteVAE_NMSL(VAE):
@@ -905,6 +1032,32 @@ class ConcreteVAE_NMSL(VAE):
         inds_concrete = torch.argsort(logits[1], descending = True)[:self.k]
 
         return inds_concrete
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        train_dataloader,
+        val_dataloader,
+        k=None,
+    ):
+        """
+        Static function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            k (int): k value for the model, the number of markers to select
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+        """
+        model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
+        train_model(model, train_dataloader, val_dataloader, **train_kwargs)
+        return model.markers().clone().cpu().detach().numpy()
 
 def loss_function_per_autoencoder(x, recon_x, logvar_x, mu_latent, logvar_latent, kl_beta = 0.1):
     # loss_rec = F.binary_cross_entropy(recon_x, x, reduction='sum')
@@ -1241,6 +1394,8 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
         val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
         batch_size (int): defaults to 64
         k_range (array): when benchmarking on k, this is what you range over, defaults to none
+    returns:
+        (dict): maps model labels to an np.array (num_times x benchmark_levels) of misclass rates
     """
     if benchmark != 'k':
         raise Exception('benchmark: Possible choices of benchmark are "k"')
@@ -1260,30 +1415,38 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
             # num_workers=num_workers,
         )
 
-        #recombine train and val for methods that don't use a val set, and for training model after finding markers
-        X_train = X[np.concatenate([train_indices, val_indices]), :]
-        y_train = y[np.concatenate([train_indices, val_indices])]
+        X_train = X[train_indices, :]
+        y_train = y[train_indices]
+        X_val = X[val_indices, :]
+        y_val = y[val_indices]
         X_test = X[test_indices,:]
         y_test = y[test_indices]
 
-        for label, model_functional in models.items():
+        for model_label, model_functional in models.items():
 
-            if k_range:
+            if benchmark == 'k':
                 k_range_results = []
                 for k in k_range:
-                    markers = model_functional(k, train_dataloader, val_dataloader)
-                    model_misclass, _, _ = new_model_metrics(X_train, y_train, X_test, y_test, markers = markers)
+                    markers = model_functional(X_train, y_train, X_val, y_val, train_dataloader, val_dataloader, k=k)
+                    # TODO: incorporate test_rep, cm
+                    model_misclass, _, _ = new_model_metrics(
+                        X[np.concatenate([train_indices, val_indices]), :],
+                        y[np.concatenate([train_indices, val_indices])],
+                        X_test,
+                        y_test,
+                        markers = markers,
+                    )
 
                     k_range_results.append(model_misclass)
 
                 k_range_results_ndarray = np.array(k_range_results).reshape((1,len(k_range_results)))
-                if label not in results:
-                    results[label] = k_range_results_ndarray
+                if model_label not in results:
+                    results[model_label] = k_range_results_ndarray
                 else:
-                    results[label] = np.append(results[label], k_range_results_ndarray, axis=0)
+                    results[model_label] = np.append(results[model_label], k_range_results_ndarray, axis=0)
 
-    if k_range:
-        return results, 'k', k_range
+    if benchmark == 'k':
+        return results, benchmark, k_range
     else:
         return results, None
 
@@ -1377,20 +1540,28 @@ def plot_confusion_matrix(cm,
     plt.show()
 
 
-def plot_benchmarks(results, benchmark_label, benchmark_range, show_stdev=False):
+def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', show_stdev=False):
     """
     Plot benchmark results of multiple models over the values that you are benchmarking on
     args:
-        results (dict): maps model label to np.array of the results with shape (num_runs x benchmark levels)
+        results (dict): maps model label to np.array of the misclassifications with shape (num_runs x benchmark range)
         benchmark label (string): what you are benchmarking over, will be the x_label
         benchmark_range (array): values that you are benchmarking over
+        mode (string): one of {'misclass', 'accuracy'}, defaults to 'misclass'
         show_stdev (bool): whether to show fill_between range of 1 stdev over the num_runs, defaults to false
     """
+    mode_options = {'misclass', 'accuracy'}
+    if mode not in mode_options:
+        raise Exception(f'plot_benchmarks: Possible choices of mode are {mode_options}')
+
     markers = ['.','o','v','^','<','>','8','s','p','P','*','h','H','+','x','X','D','d','|','_','1','2','3','4',',']
     fig1, ax1 = plt.subplots()
     i = 0
     num_runs = 1
     for label, result in results.items():
+        if mode == 'accuracy':
+            result = np.ones(result.shape) - result
+
         num_runs = result.shape[0]
         mean_result = result.mean(axis=0)
 
@@ -1403,9 +1574,9 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, show_stdev=False)
         ax1.plot(benchmark_range, mean_result, label=label, marker=markers[i])
         i = (i+1) % len(markers)
 
-    ax1.set_title(f'Misclass Benchmark, over {num_runs} runs')
+    ax1.set_title(f'{mode.capitalize()} Benchmark, over {num_runs} runs')
     ax1.set_xlabel(benchmark_label)
-    ax1.set_ylabel('Misclass Rate')
+    ax1.set_ylabel(mode.capitalize())
     ax1.legend()
 
     plt.show()
