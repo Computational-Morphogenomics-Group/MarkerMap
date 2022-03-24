@@ -118,7 +118,7 @@ elif data_name == 'cite_seq':
 
 # The smashpy methods set global seeds that mess with sampling. These seeds are used
 # to stop those methods from using the same global seed over and over.
-random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue()
+random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length = len(k_range) * num_times * 5)
 
 input_size = X.shape[1]
 

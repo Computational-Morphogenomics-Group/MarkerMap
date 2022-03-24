@@ -248,6 +248,14 @@ class BenchmarkableModel():
         return partial(cls.benchmarkerFunctional, create_kwargs, train_kwargs)
 
     def prepareData(X, y, train_indices, val_indices):
+        """
+        Sorts X and y data into train and val sets based on the provided indices
+        args:
+            X (np.array): input data, counts of various proteins
+            y (np.array): output data, what type of cell it is
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+        """
         X_train = X[train_indices, :]
         y_train = y[train_indices]
         X_val = X[val_indices, :]
@@ -620,6 +628,12 @@ class VAE_l1_diag(VAE):
             val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
         """
+        if not k:
+            k = train_kwargs['k']
+
+        if k in train_kwargs:
+            train_kwargs.pop('k')
+
         feature_std = torch.tensor(X).std(dim = 0)
         model = cls(**create_kwargs)
         train_model(model, train_dataloader, val_dataloader, **train_kwargs)
