@@ -9,6 +9,8 @@ from torch.nn import functional as F
 
 
 import os
+import contextlib
+import queue
 from torch.utils.data import DataLoader, random_split
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -31,6 +33,7 @@ import matplotlib.pyplot as plt
 import scanpy as sc
 
 from lassonet import LassoNetClassifier
+from smashpy import smashpy
 
 import logging
 from functools import partial
@@ -244,6 +247,14 @@ class BenchmarkableModel():
         """
         return partial(cls.benchmarkerFunctional, create_kwargs, train_kwargs)
 
+    def prepareData(X, y, train_indices, val_indices):
+        X_train = X[train_indices, :]
+        y_train = y[train_indices]
+        X_val = X[val_indices, :]
+        y_val = y[val_indices]
+
+        return X_train, y_train, X_val, y_val
+
 
 class RandomBaseline(BenchmarkableModel):
     """
@@ -255,16 +266,16 @@ class RandomBaseline(BenchmarkableModel):
         cls,
         create_kwargs,
         train_kwargs,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
+        X,
+        y,
+        train_indices,
+        val_indices,
         train_dataloader,
         val_dataloader,
         **kwargs,
     ):
         """
-        Static function that initializes, trains, and returns markers for the provided data with the specific params
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
         args:
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
@@ -275,7 +286,7 @@ class RandomBaseline(BenchmarkableModel):
             k (int): k value for the model, the number of markers to select
         """
         all_kwargs = {**create_kwargs, **train_kwargs, **kwargs}
-        return np.random.permutation(range(X_train.shape[1]))[:all_kwargs['k']]
+        return np.random.permutation(range(X.shape[1]))[:all_kwargs['k']]
 
 
 class LassoNetWrapper(LassoNetClassifier, BenchmarkableModel):
@@ -288,21 +299,24 @@ class LassoNetWrapper(LassoNetClassifier, BenchmarkableModel):
         cls,
         create_kwargs,
         train_kwargs,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
+        X,
+        y,
+        train_indices,
+        val_indices,
         train_dataloader,
         val_dataloader,
-        k=None
+        k=None,
     ):
         """
-        Function that initializes, trains, and returns markers for the provided data with the specific params
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
         args:
+            cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            train_data ():
-            val_data ():
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
             train_dataloader (pytorch dataloader): dataloader for training data set
             val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
@@ -310,9 +324,173 @@ class LassoNetWrapper(LassoNetClassifier, BenchmarkableModel):
         if not k:
             k = train_kwargs['k']
 
+        X_train, y_train, X_val, y_val = cls.prepareData(X, y, train_indices, val_indices)
+
         model = LassoNetClassifier(**create_kwargs)
         model.path(X_train, y_train, X_val = X_val, y_val = y_val)
         return torch.argsort(model.feature_importances_, descending = True).cpu().numpy()[:k]
+
+
+class SmashPyWrapper(smashpy, BenchmarkableModel):
+    """
+    Thin wrapper on SmashPy that implements the BenchmarkableModel functionality, as well as fixes a few issues
+    with SmashPy
+    """
+
+    def ensemble_learning(self, *args, **kwargs):
+        """
+        SmashPy has a bug where verbose does not suppress the print statements in this function, so we do it here
+        """
+        if ('verbose' not in kwargs) or (kwargs['verbose'] == True):
+            return super().ensemble_learning(*args, **kwargs)
+        else:
+            # https://stackoverflow.com/a/46129367
+            with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
+                return super().ensemble_learning(*args, **kwargs)
+
+    def DNN(self, *args, **kwargs):
+        """
+        SmashPy has a bug where verbose does not suppress the print statements in this function, so we do it here
+        """
+        if ('verbose' not in kwargs) or (kwargs['verbose'] == True):
+            return super().DNN(*args, **kwargs)
+        else:
+            # https://stackoverflow.com/a/46129367
+            with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
+                return super().DNN(*args, **kwargs)
+
+    def run_shap(self, *args, **kwargs):
+        """
+        SmashPy has a bug where verbose does not suppress the show plots in this function which stops execution
+        """
+        if ('verbose' not in kwargs) or (kwargs['verbose'] == True):
+            return super().run_shap(*args, **kwargs)
+        else:
+            # put plots in interactive mode so that they do not block execution
+            with plt.ion():
+                return super().run_shap(*args, **kwargs)
+
+    def prepareData(adata, train_indices, val_indices):
+        """
+        Combines the train_indices and val_indices and returns them all as the training data from adata
+        args:
+            adata (AnnData): data with annotations, returned from something like scanpy.read_h5ad
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+        """
+        return adata[np.concatenate([train_indices, val_indices]), :]
+
+    def getRandomSeedsQueue(length = 400):
+        """
+        SmashPy sets the numpy random seed to 42, so we generate a queue and pass it to the benchmarker to ensure we
+        aren't always using the same seed
+        args:
+            length (int): length of the queue, should be at least num_times * benchmark_range * # smashpy models
+        returns:
+            (SimpleQueue): of random seeds between 1 and 1000000
+        """
+        random_seeds_queue = queue.SimpleQueue()
+        for seed in np.random.randint(low=1, high = 1000000, size = length):
+          random_seeds_queue.put(seed)
+
+        return random_seeds_queue
+
+    @classmethod
+    def getBenchmarker(cls, random_seeds_queue=None, model=None, create_kwargs={}, train_kwargs={}):
+        """
+        Returns a function used by the the benchmarker to intialize and train model, then return markers
+        args:
+            random_seeds_queue (queue): A queue filled with random seeds, at least one for every time SmashPy is run
+            model (string): type of smashpy model, either None, 'RandomForest', or 'DNN'. Defaults to 'RandomForest'
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+        """
+
+        if not random_seeds_queue:
+            raise Exception(
+                'SmashPyWrapper::getBenchmarker: SmashPy modifies the numpy random seeds, so a queue of random seeds must be passed as random_seeds_queue',
+            )
+        model_options = { None, 'RandomForest', 'DNN' }
+        if model not in model_options:
+            raise Exception(f'SmashPyWrapper::getBenchmarker: model must be one of {mode_options}')
+
+        return partial(
+            cls.benchmarkerFunctional,
+            create_kwargs,
+            train_kwargs,
+            random_seeds_queue=random_seeds_queue,
+            model=model,
+        )
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X,
+        y,
+        train_indices,
+        val_indices,
+        train_dataloader,
+        val_dataloader,
+        k=None,
+        random_seeds_queue=None,
+        model='RandomForest',
+    ):
+        """
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            cls (string): The current, derived class name, used for calling derived class functions
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
+        """
+        create_kwargs = {
+            'group_by': 'annotation',
+            'verbose': False, # has a bug, need to further control printing
+            'save': False,
+            **create_kwargs,
+        }
+
+        train_kwargs = {
+            'group_by': 'annotation',
+            'verbose': False,
+            **train_kwargs,
+        }
+
+        if 'adata' not in create_kwargs:
+            raise Exception('SmashPyWrapper::benchmarkerFunctional: adata required in create_kwargs')
+
+        create_kwargs['adata'] = cls.prepareData(create_kwargs['adata'], train_indices, val_indices)
+
+        if k:
+            train_kwargs['restrict_top'] = ('global', k)
+
+        sm = cls() # this prints "Initializing...", currently not blocking
+
+        selectedGenes = []
+        if model == 'RandomForest':
+            clf = sm.ensemble_learning(**{ 'classifier': model, **create_kwargs })
+            selectedGenes, _ = sm.gini_importance(create_kwargs['adata'], clf, **train_kwargs)
+        elif model == 'DNN':
+            sm.DNN(**create_kwargs)
+            selectedGenes, _ = sm.run_shap(create_kwargs['adata'], **{ 'pct': 0.1, **train_kwargs })
+
+        # Move to the next random seed
+        seed = random_seeds_queue.get_nowait()
+        np.random.seed(seed)
+
+        return create_kwargs['adata'].var.index.get_indexer(selectedGenes)
+
+        #HAVE TO DEAL WITH SEEDS!!
 
 
 class VAE(pl.LightningModule, BenchmarkableModel):
@@ -415,6 +593,37 @@ class VAE_l1_diag(VAE):
         h = self.encoder(xprime)
         return self.enc_mean(h), self.enc_logvar(h)
 
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X,
+        y,
+        train_indices,
+        val_indices,
+        train_dataloader,
+        val_dataloader,
+        k=None,
+    ):
+        """
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            cls (string): The current, derived class name, used for calling derived class functions
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
+        """
+        feature_std = torch.tensor(X).std(dim = 0)
+        model = cls(**create_kwargs)
+        train_model(model, train_dataloader, val_dataloader, **train_kwargs)
+        return model.markers(feature_std = feature_std.to(model.device), k = k).clone().cpu().detach().numpy()
 
 def gumbel_keys(w, EPSILON):
     """
@@ -682,10 +891,10 @@ class VAE_Gumbel_GlobalGate(VAE):
         cls,
         create_kwargs,
         train_kwargs,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
+        X,
+        y,
+        train_indices,
+        val_indices,
         train_dataloader,
         val_dataloader,
         k=None,
@@ -693,11 +902,16 @@ class VAE_Gumbel_GlobalGate(VAE):
         """
         Class function that initializes, trains, and returns markers for the provided data with the specific params
         args:
+            cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            k (int): k value for the model, the number of markers to select
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
             train_dataloader (pytorch dataloader): dataloader for training data set
             val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
         """
         model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
         train_model(model, train_dataloader, val_dataloader, **train_kwargs)
@@ -779,10 +993,10 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         cls,
         create_kwargs,
         train_kwargs,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
+        X,
+        y,
+        train_indices,
+        val_indices,
         train_dataloader,
         val_dataloader,
         k=None,
@@ -790,11 +1004,16 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         """
         Class function that initializes, trains, and returns markers for the provided data with the specific params
         args:
+            cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            k (int): k value for the model, the number of markers to select
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
             train_dataloader (pytorch dataloader): dataloader for training data set
             val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
         """
         model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
         train_model(model, train_dataloader, val_dataloader, **train_kwargs)
@@ -1038,22 +1257,27 @@ class ConcreteVAE_NMSL(VAE):
         cls,
         create_kwargs,
         train_kwargs,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
+        X,
+        y,
+        train_indices,
+        val_indices,
         train_dataloader,
         val_dataloader,
         k=None,
     ):
         """
-        Static function that initializes, trains, and returns markers for the provided data with the specific params
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
         args:
+            cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            k (int): k value for the model, the number of markers to select
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
             train_dataloader (pytorch dataloader): dataloader for training data set
             val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
         """
         model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
         train_model(model, train_dataloader, val_dataloader, **train_kwargs)
@@ -1415,10 +1639,6 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
             # num_workers=num_workers,
         )
 
-        X_train = X[train_indices, :]
-        y_train = y[train_indices]
-        X_val = X[val_indices, :]
-        y_val = y[val_indices]
         X_test = X[test_indices,:]
         y_test = y[test_indices]
 
@@ -1427,7 +1647,7 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
             if benchmark == 'k':
                 k_range_results = []
                 for k in k_range:
-                    markers = model_functional(X_train, y_train, X_val, y_val, train_dataloader, val_dataloader, k=k)
+                    markers = model_functional(X, y, train_indices, val_indices, train_dataloader, val_dataloader, k=k)
                     # TODO: incorporate test_rep, cm
                     model_misclass, _, _ = new_model_metrics(
                         X[np.concatenate([train_indices, val_indices]), :],
