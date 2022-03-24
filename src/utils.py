@@ -1415,13 +1415,10 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
             # num_workers=num_workers,
         )
 
-        #recombine train and val for methods that don't use a val set, and for training model after finding markers
         X_train = X[train_indices, :]
         y_train = y[train_indices]
         X_val = X[val_indices, :]
         y_val = y[val_indices]
-        X_train_val = X[np.concatenate([train_indices, val_indices]), :]
-        y_train_val = y[np.concatenate([train_indices, val_indices])]
         X_test = X[test_indices,:]
         y_test = y[test_indices]
 
@@ -1433,11 +1430,11 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
                     markers = model_functional(X_train, y_train, X_val, y_val, train_dataloader, val_dataloader, k=k)
                     # TODO: incorporate test_rep, cm
                     model_misclass, _, _ = new_model_metrics(
-                        X_train_val,
-                        y_train_val,
+                        X[np.concatenate([train_indices, val_indices]), :],
+                        y[np.concatenate([train_indices, val_indices])],
                         X_test,
                         y_test,
-                        markers = markers
+                        markers = markers,
                     )
 
                     k_range_results.append(model_misclass)
