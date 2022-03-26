@@ -284,6 +284,7 @@ misclass_rates, benchmark_label, benchmark_range = benchmark(
   X,
   y,
   benchmark='k',
+  save_path='checkpoints/',
   k_range=k_range,
 )
 

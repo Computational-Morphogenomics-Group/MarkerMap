@@ -1618,9 +1618,21 @@ def model_variances(path, tries):
     return np.mean(misclass_arr), np.mean(weight_f1_arr), np.std(misclass_arr), np.std(weight_f1_arr)
 
 
-def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0.1, batch_size = 64, k_range=None):
+def benchmark(
+    models,
+    num_times,
+    X,
+    y,
+    benchmark,
+    train_size = 0.7,
+    val_size = 0.1,
+    batch_size = 64,
+    save_path=None,
+    k_range=None,
+):
     """
-    Benchmark a collection of models by a benchmark param on data X,y
+    Benchmark a collection of models by a benchmark param on data X,y. If save_path is specified, results are saved
+    when a complete benchmark_range is complete
     args:
         models (dict): maps model labels to a function that runs the model on the data and returns markers
             use model.getBenchmarker() to automatically generate those functions
@@ -1631,9 +1643,12 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
         train_size (float): 0 to 1, fraction of data for train set, defaults to 0.7
         val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
         batch_size (int): defaults to 64
+        save_path (string): if not None, folder to save results to, defaults to None
         k_range (array): when benchmarking on k, this is what you range over, defaults to none
     returns:
         (dict): maps model labels to an np.array (num_times x benchmark_levels) of misclass rates
+        (string): benchmark
+        (array-like): benchmark_range
     """
     if benchmark != 'k':
         raise Exception('benchmark: Possible choices of benchmark are "k"')
@@ -1678,6 +1693,9 @@ def benchmark(models, num_times, X, y, benchmark, train_size = 0.7, val_size = 0
                     results[model_label] = k_range_results_ndarray
                 else:
                     results[model_label] = np.append(results[model_label], k_range_results_ndarray, axis=0)
+
+                if save_path:
+                    np.save(f'{save_path}benchmark_{benchmark}_{num_times}', results)
 
     if benchmark == 'k':
         return results, benchmark, k_range
