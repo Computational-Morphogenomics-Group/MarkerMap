@@ -116,6 +116,10 @@ elif data_name == 'paul':
 elif data_name == 'cite_seq':
   adata, X, y, encoder = getCiteSeq('data/cite_seq/CITEseq.h5ad')
 
+# The smashpy methods set global seeds that mess with sampling. These seeds are used
+# to stop those methods from using the same global seed over and over.
+random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length = len(k_range) * num_times * 5)
+
 input_size = X.shape[1]
 
 # Declare models
@@ -233,6 +237,36 @@ global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
   }
 )
 
+smash_rf = SmashPyWrapper.getBenchmarker(
+  create_kwargs = { 'adata': adata },
+  train_kwargs = { 'restrict_top': ('global', 25) },
+  model='RandomForest',
+  random_seeds_queue = random_seeds_queue,
+)
+
+smash_dnn = SmashPyWrapper.getBenchmarker(
+  create_kwargs = { 'adata': adata },
+  train_kwargs = { 'restrict_top': ('global', 25) },
+  model='DNN',
+  random_seeds_queue = random_seeds_queue,
+)
+
+l1_vae = VAE_l1_diag.getBenchmarker(
+  create_kwargs = {
+    'input_size': input_size,
+    'hidden_layer_size': hidden_layer_size,
+    'z_size': z_size,
+    'batch_norm': batch_norm,
+  },
+  train_kwargs = {
+    'gpus': gpus,
+    'min_epochs': 25,
+    'max_epochs': max_epochs,
+    'early_stopping_patience': 4,
+    'precision': precision,
+  },
+)
+
 misclass_rates, benchmark_label, benchmark_range = benchmark(
   {
     UNSUP_MM: unsupervised_mm,
@@ -242,6 +276,9 @@ misclass_rates, benchmark_label, benchmark_range = benchmark(
     LASSONET: LassoNetWrapper.getBenchmarker(),
     CONCRETE_VAE: concrete_vae,
     GLOBAL_GATE: global_gate,
+    SMASH_RF: smash_rf,
+    SMASH_DNN: smash_dnn,
+    L1_VAE: l1_vae,
   },
   num_times,
   X,
