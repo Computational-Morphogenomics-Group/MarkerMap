@@ -99,9 +99,11 @@ batch_size = 64
 batch_norm = True
 
 global_t = 3.0
+k=50
 
 k_range = [10, 25, 50, 100, 250]
-num_times = 3
+label_error_range = [0.05, 0.1, 0.2, 0.3, 0.5]
+num_times = 1
 max_epochs = 100
 
 #pytorch lightning stuff
@@ -128,7 +130,7 @@ unsupervised_mm = MarkerMap.getBenchmarker(
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
     'num_classes': None,
-    'k': 25,
+    'k': k,
     't': global_t,
     'batch_norm': batch_norm,
     'loss_tradeoff': 1.0,
@@ -152,7 +154,7 @@ supervised_mm = MarkerMap.getBenchmarker(
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
     'num_classes': len(encoder.classes_),
-    'k': 25,
+    'k': k,
     't': global_t,
     'batch_norm': batch_norm,
     'loss_tradeoff': 0,
@@ -175,7 +177,7 @@ mixed_mm = MarkerMap.getBenchmarker(
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
     'num_classes': len(encoder.classes_),
-    'k': 25,
+    'k': k,
     't': global_t,
     'batch_norm': batch_norm,
     'loss_tradeoff': 0.5,
@@ -197,7 +199,7 @@ concrete_vae = ConcreteVAE_NMSL.getBenchmarker(
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
-    'k': 25,
+    'k': k,
     't': global_t,
     'batch_norm': batch_norm,
   },
@@ -218,7 +220,7 @@ global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
-    'k': 25,
+    'k': k,
     't': global_t,
     'temperature_decay': 0.95,
     'batch_norm': batch_norm,
@@ -238,14 +240,14 @@ global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
 
 smash_rf = SmashPyWrapper.getBenchmarker(
   create_kwargs = { 'adata': adata },
-  train_kwargs = { 'restrict_top': ('global', 25) },
+  train_kwargs = { 'restrict_top': ('global', k) },
   model='RandomForest',
   random_seeds_queue = random_seeds_queue,
 )
 
 smash_dnn = SmashPyWrapper.getBenchmarker(
   create_kwargs = { 'adata': adata },
-  train_kwargs = { 'restrict_top': ('global', 25) },
+  train_kwargs = { 'restrict_top': ('global', k) },
   model='DNN',
   random_seeds_queue = random_seeds_queue,
 )
@@ -263,28 +265,29 @@ l1_vae = VAE_l1_diag.getBenchmarker(
     'max_epochs': max_epochs,
     'early_stopping_patience': 4,
     'precision': precision,
+    'k': k,
   },
 )
 
 misclass_rates, benchmark_label, benchmark_range = benchmark(
   {
-    UNSUP_MM: unsupervised_mm,
-    SUP_MM: supervised_mm,
-    MIXED_MM: mixed_mm,
-    BASELINE: RandomBaseline.getBenchmarker(),
-    LASSONET: LassoNetWrapper.getBenchmarker(),
-    CONCRETE_VAE: concrete_vae,
-    GLOBAL_GATE: global_gate,
-    SMASH_RF: smash_rf,
+    # UNSUP_MM: unsupervised_mm,
+    # SUP_MM: supervised_mm,
+    # MIXED_MM: mixed_mm,
+    BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
+    # LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
+    # CONCRETE_VAE: concrete_vae,
+    # GLOBAL_GATE: global_gate,
+    # SMASH_RF: smash_rf,
     SMASH_DNN: smash_dnn,
-    L1_VAE: l1_vae,
+    # L1_VAE: l1_vae,
   },
   num_times,
   X,
   y,
-  benchmark='k',
   save_path='checkpoints/',
-  k_range=k_range,
+  benchmark='label_error',
+  benchmark_range=label_error_range,
 )
 
 plot_benchmarks(misclass_rates, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)

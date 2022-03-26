@@ -1628,7 +1628,7 @@ def benchmark(
     val_size = 0.1,
     batch_size = 64,
     save_path=None,
-    k_range=None,
+    benchmark_range=None,
 ):
     """
     Benchmark a collection of models by a benchmark param on data X,y. If save_path is specified, results are saved
@@ -1644,18 +1644,18 @@ def benchmark(
         val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
         batch_size (int): defaults to 64
         save_path (string): if not None, folder to save results to, defaults to None
-        k_range (array): when benchmarking on k, this is what you range over, defaults to none
+        benchmark_range (array): values that the benchmark ranges over, defaults to none
     returns:
         (dict): maps model labels to an np.array (num_times x benchmark_levels) of misclass rates
         (string): benchmark
         (array-like): benchmark_range
     """
-    if benchmark != 'k':
-        raise Exception('benchmark: Possible choices of benchmark are "k"')
+    benchmark_options = { 'k', 'label_error' }
+    if benchmark not in benchmark_options:
+        raise Exception(f'benchmark: Possible choices of benchmark are {benchmark_options}')
 
-    if benchmark == 'k' and not k_range:
-        raise Exception('benchmark: When benchmarking over "k", please provide k_range')
-
+    if not benchmark_range:
+        raise Exception(f'benchmark: For benchmark {benchmark}, please provide a range')
 
     results = {}
     for i in range(num_times):
@@ -1673,35 +1673,52 @@ def benchmark(
 
         for model_label, model_functional in models.items():
 
-            if benchmark == 'k':
-                k_range_results = []
-                for k in k_range:
-                    markers = model_functional(X, y, train_indices, val_indices, train_dataloader, val_dataloader, k=k)
-                    # TODO: incorporate test_rep, cm
-                    model_misclass, _, _ = new_model_metrics(
-                        X[np.concatenate([train_indices, val_indices]), :],
-                        y[np.concatenate([train_indices, val_indices])],
-                        X_test,
-                        y_test,
-                        markers = markers,
+            benchmark_results = []
+            for val in benchmark_range:
+                if benchmark == 'k':
+                    markers = model_functional(
+                        X,
+                        y,
+                        train_indices,
+                        val_indices,
+                        train_dataloader,
+                        val_dataloader,
+                        k=val,
                     )
+                elif benchmark == 'label_error':
+                    num_mislabelled = int(val*len(y))
+                    y_unique = np.unique(y)
+                    #sample the new wrong labels uniformly from the possible unique labels
+                    mislabels = y_unique[np.random.randint(0, len(y_unique), num_mislabelled)]
 
-                    k_range_results.append(model_misclass)
+                    #sample the indices of y without replacement, we will replace those indices with the new labels
+                    mislabelled_indices = np.random.permutation(list(range(len(y))))[:num_mislabelled]
+                    y_err = y.copy()
+                    y_err[mislabelled_indices] = mislabels
 
-                k_range_results_ndarray = np.array(k_range_results).reshape((1,len(k_range_results)))
-                if model_label not in results:
-                    results[model_label] = k_range_results_ndarray
-                else:
-                    results[model_label] = np.append(results[model_label], k_range_results_ndarray, axis=0)
+                    markers = model_functional(X, y_err, train_indices, val_indices, train_dataloader, val_dataloader)
 
-                if save_path:
-                    np.save(f'{save_path}benchmark_{benchmark}_{num_times}', results)
+                # TODO: incorporate test_rep, cm
+                model_misclass, _, _ = new_model_metrics(
+                    X[np.concatenate([train_indices, val_indices]), :],
+                    y[np.concatenate([train_indices, val_indices])],
+                    X_test,
+                    y_test,
+                    markers = markers,
+                )
 
-    if benchmark == 'k':
-        return results, benchmark, k_range
-    else:
-        return results, None
+                benchmark_results.append(model_misclass)
 
+            benchmark_results_ndarray = np.array(benchmark_results).reshape((1,len(benchmark_results)))
+            if model_label not in results:
+                results[model_label] = benchmark_results_ndarray
+            else:
+                results[model_label] = np.append(results[model_label], benchmark_results_ndarray, axis=0)
+
+            if save_path:
+                np.save(f'{save_path}benchmark_{benchmark}_{num_times}', results)
+
+    return results, benchmark, benchmark_range
 
 #######
 
