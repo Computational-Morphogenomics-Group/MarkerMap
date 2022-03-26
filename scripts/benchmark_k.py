@@ -1,7 +1,6 @@
 import sys
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
-import smashpy
 
 sys.path.insert(1, './src/')
 from utils import *
@@ -31,7 +30,7 @@ def getZeisel(file_path):
 
 def getPaul(housekeeping_genes_dir):
   adata = sc.datasets.paul15()
-  sm = smashpy.smashpy()
+  sm = SmashPyWrapper()
   sm.data_preparation(adata)
   adata = sm.remove_general_genes(adata)
   adata = sm.remove_housekeepingenes(adata, path=[housekeeping_genes_dir + 'house_keeping_genes_Mouse_bone_marrow.txt'])
