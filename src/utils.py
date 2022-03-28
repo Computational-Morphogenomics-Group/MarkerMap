@@ -1617,6 +1617,26 @@ def model_variances(path, tries):
         weight_f1_arr.append(results[1]['weighted avg']['f1-score'])
     return np.mean(misclass_arr), np.mean(weight_f1_arr), np.std(misclass_arr), np.std(weight_f1_arr)
 
+def mislabel_points(y, mislabel_percent, eligible_indices=None):
+    assert mislabel_percent <= 1.0
+    assert mislabel_percent >= 0.0
+
+    if eligible_indices is None:
+        eligible_indices = np.array(range(len(y)))
+
+    assert np.max(eligible_indices) < len(y)
+
+    num_mislabelled = int(mislabel_percent*len(eligible_indices))
+    y_unique = np.unique(y)
+    #sample the new wrong labels uniformly from the possible unique labels
+    mislabels = y_unique[np.random.randint(0, len(y_unique), num_mislabelled)]
+
+    #sample the indices of y without replacement, we will replace those indices with the new labels
+    mislabelled_indices = np.random.permutation(eligible_indices)[:num_mislabelled]
+    y_err = y.copy()
+    y_err[mislabelled_indices] = mislabels
+
+    return y_err
 
 def benchmark(
     models,
@@ -1685,27 +1705,26 @@ def benchmark(
                         val_dataloader,
                         k=val,
                     )
+                    # TODO: incorporate test_rep, cm
+                    model_misclass, _, _ = new_model_metrics(
+                        X[np.concatenate([train_indices, val_indices]), :],
+                        y[np.concatenate([train_indices, val_indices])],
+                        X_test,
+                        y_test,
+                        markers = markers,
+                    )
                 elif benchmark == 'label_error':
-                    num_mislabelled = int(val*len(y))
-                    y_unique = np.unique(y)
-                    #sample the new wrong labels uniformly from the possible unique labels
-                    mislabels = y_unique[np.random.randint(0, len(y_unique), num_mislabelled)]
-
-                    #sample the indices of y without replacement, we will replace those indices with the new labels
-                    mislabelled_indices = np.random.permutation(list(range(len(y))))[:num_mislabelled]
-                    y_err = y.copy()
-                    y_err[mislabelled_indices] = mislabels
-
+                    y_err = mislabel_points(y, val, np.concatenate([train_indices, val_indices]))
                     markers = model_functional(X, y_err, train_indices, val_indices, train_dataloader, val_dataloader)
 
-                # TODO: incorporate test_rep, cm
-                model_misclass, _, _ = new_model_metrics(
-                    X[np.concatenate([train_indices, val_indices]), :],
-                    y[np.concatenate([train_indices, val_indices])],
-                    X_test,
-                    y_test,
-                    markers = markers,
-                )
+                    # TODO: incorporate test_rep, cm
+                    model_misclass, _, _ = new_model_metrics(
+                        X[np.concatenate([train_indices, val_indices]), :],
+                        y_err[np.concatenate([train_indices, val_indices])],
+                        X_test,
+                        y_test,
+                        markers = markers,
+                    )
 
                 benchmark_results.append(model_misclass)
 

@@ -99,10 +99,10 @@ batch_size = 64
 batch_norm = True
 
 global_t = 3.0
-k=50
+k=25
 
 k_range = [10, 25, 50, 100, 250]
-label_error_range = [0.05, 0.1, 0.2, 0.3, 0.5]
+label_error_range = [0.1, 0.2, 0.5, 0.75, 1]
 num_times = 1
 max_epochs = 100
 
@@ -271,16 +271,16 @@ l1_vae = VAE_l1_diag.getBenchmarker(
 
 misclass_rates, benchmark_label, benchmark_range = benchmark(
   {
-    # UNSUP_MM: unsupervised_mm,
-    # SUP_MM: supervised_mm,
-    # MIXED_MM: mixed_mm,
+    UNSUP_MM: unsupervised_mm,
+    SUP_MM: supervised_mm,
+    MIXED_MM: mixed_mm,
     BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
-    # LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
-    # CONCRETE_VAE: concrete_vae,
-    # GLOBAL_GATE: global_gate,
-    # SMASH_RF: smash_rf,
+    LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
+    CONCRETE_VAE: concrete_vae,
+    GLOBAL_GATE: global_gate,
+    SMASH_RF: smash_rf,
     SMASH_DNN: smash_dnn,
-    # L1_VAE: l1_vae,
+    L1_VAE: l1_vae,
   },
   num_times,
   X,
