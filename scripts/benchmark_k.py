@@ -26,7 +26,7 @@ def getZeisel(file_path):
   encoder = LabelEncoder()
   encoder.fit(labels)
   y = encoder.transform(labels)
-  return adata, X, y, encoder
+  return X, y, encoder
 
 def getPaul(housekeeping_genes_dir):
   adata = sc.datasets.paul15()
@@ -69,7 +69,7 @@ def getPaul(housekeeping_genes_dir):
   encoder = LabelEncoder()
   encoder.fit(labels)
   y = encoder.transform(labels)
-  return adata, X, y, encoder
+  return X, y, encoder
 
 def getCiteSeq(file_path):
   adata = sc.read_h5ad(file_path)
@@ -79,7 +79,7 @@ def getCiteSeq(file_path):
   encoder = LabelEncoder()
   encoder.fit(labels)
   y = encoder.transform(labels)
-  return adata, X, y, encoder
+  return X, y, encoder
 
 
 # Main
@@ -111,11 +111,11 @@ gpus = None
 precision=32
 
 if data_name == 'zeisel':
-  adata, X, y, encoder = getZeisel('data/zeisel/Zeisel.h5ad')
+  X, y, encoder = getZeisel('data/zeisel/Zeisel.h5ad')
 elif data_name == 'paul':
-  adata, X, y, encoder = getPaul('data/paul15/')
+  X, y, encoder = getPaul('data/paul15/')
 elif data_name == 'cite_seq':
-  adata, X, y, encoder = getCiteSeq('data/cite_seq/CITEseq.h5ad')
+  X, y, encoder = getCiteSeq('data/cite_seq/CITEseq.h5ad')
 
 # The smashpy methods set global seeds that mess with sampling. These seeds are used
 # to stop those methods from using the same global seed over and over.
@@ -239,14 +239,12 @@ global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
 )
 
 smash_rf = SmashPyWrapper.getBenchmarker(
-  create_kwargs = { 'adata': adata },
   train_kwargs = { 'restrict_top': ('global', k) },
   model='RandomForest',
   random_seeds_queue = random_seeds_queue,
 )
 
 smash_dnn = SmashPyWrapper.getBenchmarker(
-  create_kwargs = { 'adata': adata },
   train_kwargs = { 'restrict_top': ('global', k) },
   model='DNN',
   random_seeds_queue = random_seeds_queue,
