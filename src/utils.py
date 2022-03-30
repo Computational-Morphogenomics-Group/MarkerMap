@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 import torch
 from torch import nn
@@ -31,6 +32,7 @@ import matplotlib.pyplot as plt
 
 
 import scanpy as sc
+import anndata
 
 from lassonet import LassoNetClassifier
 from smashpy import smashpy
@@ -378,15 +380,27 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
             with plt.ion():
                 return super().run_shap(*args, **kwargs)
 
-    def prepareData(adata, train_indices, val_indices):
+    def prepareData(X, y, train_indices, val_indices, group_by):
         """
-        Combines the train_indices and val_indices and returns them all as the training data from adata
+        Since SmashPy requires data structured as AnnData, recreate it from X and y
         args:
-            adata (AnnData): data with annotations, returned from something like scanpy.read_h5ad
+            X (np.array): input data, counts of various proteins
+            y (np.array): output data, what type of cell it is
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
+            group_by (string): the obs ouput the smashpy looks to
         """
-        return adata[np.concatenate([train_indices, val_indices]), :]
+        train_val_indices = np.concatenate([train_indices, val_indices])
+
+        # this line will emit a warning, "Transforming to str index" from AnnData, I am having trouble making it
+        # go away. See: https://github.com/theislab/anndata/issues/311
+        aData = anndata.AnnData(X=pd.DataFrame(X).iloc[train_val_indices, :])
+        y_series = pd.Series(y, dtype='string').astype('category').iloc[train_val_indices]
+        # some index hackery is required here to get the index types to match
+        y_series.index = y_series.index.astype('string').astype('object')
+
+        aData.obs[group_by] = y_series
+        return aData
 
     def getRandomSeedsQueue(length = 400):
         """
@@ -473,11 +487,9 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
             'verbose': False,
             **train_kwargs,
         }
+        assert create_kwargs['group_by'] == train_kwargs['group_by']
 
-        if 'adata' not in create_kwargs:
-            raise Exception('SmashPyWrapper::benchmarkerFunctional: adata required in create_kwargs')
-
-        create_kwargs['adata'] = cls.prepareData(create_kwargs['adata'], train_indices, val_indices)
+        create_kwargs['adata'] = cls.prepareData(X, y, train_indices, val_indices, create_kwargs['group_by'])
 
         if k:
             train_kwargs['restrict_top'] = ('global', k)
@@ -497,8 +509,6 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
         np.random.seed(seed)
 
         return create_kwargs['adata'].var.index.get_indexer(selectedGenes)
-
-        #HAVE TO DEAL WITH SEEDS!!
 
 
 class VAE(pl.LightningModule, BenchmarkableModel):
@@ -631,7 +641,8 @@ class VAE_l1_diag(VAE):
         if not k:
             k = train_kwargs['k']
 
-        if k in train_kwargs:
+        if 'k' in train_kwargs:
+            train_kwargs = { **train_kwargs } #copy train_kwargs so later iterations have 'k'
             train_kwargs.pop('k')
 
         feature_std = torch.tensor(X).std(dim = 0)
@@ -1659,7 +1670,7 @@ def benchmark(
         num_times (int): number of random data splits to run the model on
         X (array): Input data
         y (vector): Output labels
-        benchmark (string): type of benchmarking to do, must be one of {"k"}
+        benchmark (string): type of benchmarking to do, must be one of {'k', 'label_error'}
         train_size (float): 0 to 1, fraction of data for train set, defaults to 0.7
         val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
         batch_size (int): defaults to 64
