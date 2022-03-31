@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 import torch
 from torch import nn
@@ -31,6 +32,7 @@ import matplotlib.pyplot as plt
 
 
 import scanpy as sc
+import anndata
 
 from lassonet import LassoNetClassifier
 from smashpy import smashpy
@@ -378,15 +380,27 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
             with plt.ion():
                 return super().run_shap(*args, **kwargs)
 
-    def prepareData(adata, train_indices, val_indices):
+    def prepareData(X, y, train_indices, val_indices, group_by):
         """
-        Combines the train_indices and val_indices and returns them all as the training data from adata
+        Since SmashPy requires data structured as AnnData, recreate it from X and y
         args:
-            adata (AnnData): data with annotations, returned from something like scanpy.read_h5ad
+            X (np.array): input data, counts of various proteins
+            y (np.array): output data, what type of cell it is
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
+            group_by (string): the obs ouput the smashpy looks to
         """
-        return adata[np.concatenate([train_indices, val_indices]), :]
+        train_val_indices = np.concatenate([train_indices, val_indices])
+
+        # this line will emit a warning, "Transforming to str index" from AnnData, I am having trouble making it
+        # go away. See: https://github.com/theislab/anndata/issues/311
+        aData = anndata.AnnData(X=pd.DataFrame(X).iloc[train_val_indices, :])
+        y_series = pd.Series(y, dtype='string').astype('category').iloc[train_val_indices]
+        # some index hackery is required here to get the index types to match
+        y_series.index = y_series.index.astype('string').astype('object')
+
+        aData.obs[group_by] = y_series
+        return aData
 
     def getRandomSeedsQueue(length = 400):
         """
@@ -473,11 +487,9 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
             'verbose': False,
             **train_kwargs,
         }
+        assert create_kwargs['group_by'] == train_kwargs['group_by']
 
-        if 'adata' not in create_kwargs:
-            raise Exception('SmashPyWrapper::benchmarkerFunctional: adata required in create_kwargs')
-
-        create_kwargs['adata'] = cls.prepareData(create_kwargs['adata'], train_indices, val_indices)
+        create_kwargs['adata'] = cls.prepareData(X, y, train_indices, val_indices, create_kwargs['group_by'])
 
         if k:
             train_kwargs['restrict_top'] = ('global', k)
@@ -497,8 +509,6 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
         np.random.seed(seed)
 
         return create_kwargs['adata'].var.index.get_indexer(selectedGenes)
-
-        #HAVE TO DEAL WITH SEEDS!!
 
 
 class VAE(pl.LightningModule, BenchmarkableModel):
@@ -631,7 +641,8 @@ class VAE_l1_diag(VAE):
         if not k:
             k = train_kwargs['k']
 
-        if k in train_kwargs:
+        if 'k' in train_kwargs:
+            train_kwargs = { **train_kwargs } #copy train_kwargs so later iterations have 'k'
             train_kwargs.pop('k')
 
         feature_std = torch.tensor(X).std(dim = 0)
@@ -1617,6 +1628,26 @@ def model_variances(path, tries):
         weight_f1_arr.append(results[1]['weighted avg']['f1-score'])
     return np.mean(misclass_arr), np.mean(weight_f1_arr), np.std(misclass_arr), np.std(weight_f1_arr)
 
+def mislabel_points(y, mislabel_percent, eligible_indices=None):
+    assert mislabel_percent <= 1.0
+    assert mislabel_percent >= 0.0
+
+    if eligible_indices is None:
+        eligible_indices = np.array(range(len(y)))
+
+    assert np.max(eligible_indices) < len(y)
+
+    num_mislabelled = int(mislabel_percent*len(eligible_indices))
+    y_unique = np.unique(y)
+    #sample the new wrong labels uniformly from the possible unique labels
+    mislabels = y_unique[np.random.randint(0, len(y_unique), num_mislabelled)]
+
+    #sample the indices of y without replacement, we will replace those indices with the new labels
+    mislabelled_indices = np.random.permutation(eligible_indices)[:num_mislabelled]
+    y_err = y.copy()
+    y_err[mislabelled_indices] = mislabels
+
+    return y_err
 
 def benchmark(
     models,
@@ -1628,7 +1659,7 @@ def benchmark(
     val_size = 0.1,
     batch_size = 64,
     save_path=None,
-    k_range=None,
+    benchmark_range=None,
 ):
     """
     Benchmark a collection of models by a benchmark param on data X,y. If save_path is specified, results are saved
@@ -1639,23 +1670,23 @@ def benchmark(
         num_times (int): number of random data splits to run the model on
         X (array): Input data
         y (vector): Output labels
-        benchmark (string): type of benchmarking to do, must be one of {"k"}
+        benchmark (string): type of benchmarking to do, must be one of {'k', 'label_error'}
         train_size (float): 0 to 1, fraction of data for train set, defaults to 0.7
         val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
         batch_size (int): defaults to 64
         save_path (string): if not None, folder to save results to, defaults to None
-        k_range (array): when benchmarking on k, this is what you range over, defaults to none
+        benchmark_range (array): values that the benchmark ranges over, defaults to none
     returns:
         (dict): maps model labels to an np.array (num_times x benchmark_levels) of misclass rates
         (string): benchmark
         (array-like): benchmark_range
     """
-    if benchmark != 'k':
-        raise Exception('benchmark: Possible choices of benchmark are "k"')
+    benchmark_options = { 'k', 'label_error' }
+    if benchmark not in benchmark_options:
+        raise Exception(f'benchmark: Possible choices of benchmark are {benchmark_options}')
 
-    if benchmark == 'k' and not k_range:
-        raise Exception('benchmark: When benchmarking over "k", please provide k_range')
-
+    if not benchmark_range:
+        raise Exception(f'benchmark: For benchmark {benchmark}, please provide a range')
 
     results = {}
     for i in range(num_times):
@@ -1673,10 +1704,18 @@ def benchmark(
 
         for model_label, model_functional in models.items():
 
-            if benchmark == 'k':
-                k_range_results = []
-                for k in k_range:
-                    markers = model_functional(X, y, train_indices, val_indices, train_dataloader, val_dataloader, k=k)
+            benchmark_results = []
+            for val in benchmark_range:
+                if benchmark == 'k':
+                    markers = model_functional(
+                        X,
+                        y,
+                        train_indices,
+                        val_indices,
+                        train_dataloader,
+                        val_dataloader,
+                        k=val,
+                    )
                     # TODO: incorporate test_rep, cm
                     model_misclass, _, _ = new_model_metrics(
                         X[np.concatenate([train_indices, val_indices]), :],
@@ -1685,23 +1724,31 @@ def benchmark(
                         y_test,
                         markers = markers,
                     )
+                elif benchmark == 'label_error':
+                    y_err = mislabel_points(y, val, np.concatenate([train_indices, val_indices]))
+                    markers = model_functional(X, y_err, train_indices, val_indices, train_dataloader, val_dataloader)
 
-                    k_range_results.append(model_misclass)
+                    # TODO: incorporate test_rep, cm
+                    model_misclass, _, _ = new_model_metrics(
+                        X[np.concatenate([train_indices, val_indices]), :],
+                        y_err[np.concatenate([train_indices, val_indices])],
+                        X_test,
+                        y_test,
+                        markers = markers,
+                    )
 
-                k_range_results_ndarray = np.array(k_range_results).reshape((1,len(k_range_results)))
-                if model_label not in results:
-                    results[model_label] = k_range_results_ndarray
-                else:
-                    results[model_label] = np.append(results[model_label], k_range_results_ndarray, axis=0)
+                benchmark_results.append(model_misclass)
 
-                if save_path:
-                    np.save(f'{save_path}benchmark_{benchmark}_{num_times}', results)
+            benchmark_results_ndarray = np.array(benchmark_results).reshape((1,len(benchmark_results)))
+            if model_label not in results:
+                results[model_label] = benchmark_results_ndarray
+            else:
+                results[model_label] = np.append(results[model_label], benchmark_results_ndarray, axis=0)
 
-    if benchmark == 'k':
-        return results, benchmark, k_range
-    else:
-        return results, None
+            if save_path:
+                np.save(f'{save_path}benchmark_{benchmark}_{num_times}', results)
 
+    return results, benchmark, benchmark_range
 
 #######
 
