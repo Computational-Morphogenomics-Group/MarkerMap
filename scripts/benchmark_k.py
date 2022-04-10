@@ -4,9 +4,9 @@ from sklearn.preprocessing import LabelEncoder
 import anndata
 import pandas as pd
 import gc
+import scanpy as sc
 
-sys.path.insert(1, './src/')
-from utils import *
+import markermap.utils as mm
 
 #Consts
 BASELINE = 'Baseline'
@@ -33,7 +33,7 @@ def getZeisel(file_path):
 
 def getPaul(housekeeping_genes_dir):
   adata = sc.datasets.paul15()
-  sm = SmashPyWrapper()
+  sm = mm.SmashPyWrapper()
   sm.data_preparation(adata)
   adata = sm.remove_general_genes(adata)
   adata = sm.remove_housekeepingenes(adata, path=[housekeeping_genes_dir + 'house_keeping_genes_Mouse_bone_marrow.txt'])
@@ -256,12 +256,12 @@ elif data_name == 'mouse_brain':
 
 # The smashpy methods set global seeds that mess with sampling. These seeds are used
 # to stop those methods from using the same global seed over and over.
-random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length = len(k_range) * num_times * 5)
+random_seeds_queue = mm.SmashPyWrapper.getRandomSeedsQueue(length = len(k_range) * num_times * 5)
 
 input_size = X.shape[1]
 
 # Declare models
-unsupervised_mm = MarkerMap.getBenchmarker(
+unsupervised_mm = mm.MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -285,7 +285,7 @@ unsupervised_mm = MarkerMap.getBenchmarker(
   },
 )
 
-supervised_mm = MarkerMap.getBenchmarker(
+supervised_mm = mm.MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -308,7 +308,7 @@ supervised_mm = MarkerMap.getBenchmarker(
   }
 )
 
-mixed_mm = MarkerMap.getBenchmarker(
+mixed_mm = mm.MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -331,7 +331,7 @@ mixed_mm = MarkerMap.getBenchmarker(
   }
 )
 
-concrete_vae = ConcreteVAE_NMSL.getBenchmarker(
+concrete_vae = mm.ConcreteVAE_NMSL.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -352,7 +352,7 @@ concrete_vae = ConcreteVAE_NMSL.getBenchmarker(
   }
 )
 
-global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
+global_gate = mm.VAE_Gumbel_GlobalGate.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -375,19 +375,19 @@ global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
   }
 )
 
-smash_rf = SmashPyWrapper.getBenchmarker(
+smash_rf = mm.SmashPyWrapper.getBenchmarker(
   train_kwargs = { 'restrict_top': ('global', k) },
   model='RandomForest',
   random_seeds_queue = random_seeds_queue,
 )
 
-smash_dnn = SmashPyWrapper.getBenchmarker(
+smash_dnn = mm.SmashPyWrapper.getBenchmarker(
   train_kwargs = { 'restrict_top': ('global', k) },
   model='DNN',
   random_seeds_queue = random_seeds_queue,
 )
 
-l1_vae = VAE_l1_diag.getBenchmarker(
+l1_vae = mm.VAE_l1_diag.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -404,13 +404,13 @@ l1_vae = VAE_l1_diag.getBenchmarker(
   },
 )
 
-misclass_rates, benchmark_label, benchmark_range = benchmark(
+misclass_rates, benchmark_label, benchmark_range = mm.benchmark(
   {
     UNSUP_MM: unsupervised_mm,
     SUP_MM: supervised_mm,
     MIXED_MM: mixed_mm,
-    BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
-    LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
+    BASELINE: mm.RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
+    LASSONET: mm.LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
     CONCRETE_VAE: concrete_vae,
     GLOBAL_GATE: global_gate,
     SMASH_RF: smash_rf,
@@ -425,4 +425,4 @@ misclass_rates, benchmark_label, benchmark_range = benchmark(
   benchmark_range=label_error_range,
 )
 
-plot_benchmarks(misclass_rates, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)
+mm.plot_benchmarks(misclass_rates, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)
