@@ -1,9 +1,7 @@
-import sys
 import pytest
 import numpy as np
 
-sys.path.insert(1, './src/')
-from utils import split_data_into_dataloaders
+from markermap.utils import split_data_into_dataloaders
 
 X = np.array([1,2,3,4,5,6,7,8]).reshape((4,2))
 y = np.array([0,1,0,1])
