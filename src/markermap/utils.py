@@ -1677,7 +1677,7 @@ def benchmark(
         save_path (string): if not None, folder to save results to, defaults to None
         benchmark_range (array): values that the benchmark ranges over, defaults to none
     returns:
-        (dict): maps model labels to an np.array (num_times x benchmark_levels) of misclass rates
+        (dict): maps 'misclass' and 'f1' to a dict of model labels to an np.array (num_times x benchmark_levels)
         (string): benchmark
         (array-like): benchmark_range
     """
@@ -1688,7 +1688,7 @@ def benchmark(
     if not benchmark_range:
         raise Exception(f'benchmark: For benchmark {benchmark}, please provide a range')
 
-    results = {}
+    results = { 'misclass': {}, 'f1': {} }
     for i in range(num_times):
         train_dataloader, val_dataloader, test_dataloader, train_indices, val_indices, test_indices = split_data_into_dataloaders(
             X,
@@ -1704,7 +1704,8 @@ def benchmark(
 
         for model_label, model_functional in models.items():
 
-            benchmark_results = []
+            misclass_results = []
+            f1_results = []
             for val in benchmark_range:
                 if benchmark == 'k':
                     markers = model_functional(
@@ -1717,7 +1718,7 @@ def benchmark(
                         k=val,
                     )
                     # TODO: incorporate test_rep, cm
-                    model_misclass, _, _ = new_model_metrics(
+                    model_misclass, test_rep, _ = new_model_metrics(
                         X[np.concatenate([train_indices, val_indices]), :],
                         y[np.concatenate([train_indices, val_indices])],
                         X_test,
@@ -1729,7 +1730,7 @@ def benchmark(
                     markers = model_functional(X, y_err, train_indices, val_indices, train_dataloader, val_dataloader)
 
                     # TODO: incorporate test_rep, cm
-                    model_misclass, _, _ = new_model_metrics(
+                    model_misclass, test_rep, _ = new_model_metrics(
                         X[np.concatenate([train_indices, val_indices]), :],
                         y_err[np.concatenate([train_indices, val_indices])],
                         X_test,
@@ -1737,13 +1738,17 @@ def benchmark(
                         markers = markers,
                     )
 
-                benchmark_results.append(model_misclass)
+                misclass_results.append(model_misclass)
+                f1_results.append(test_rep['weighted avg']['f1-score'])
 
-            benchmark_results_ndarray = np.array(benchmark_results).reshape((1,len(benchmark_results)))
-            if model_label not in results:
-                results[model_label] = benchmark_results_ndarray
+            misclass_results_ndarray = np.array(misclass_results).reshape((1,len(misclass_results)))
+            f1_results_ndarray = np.array(f1_results).reshape((1,len(f1_results)))
+            if model_label not in results['misclass']:
+                results['misclass'][model_label] = misclass_results_ndarray
+                results['f1'][model_label] = f1_results_ndarray
             else:
-                results[model_label] = np.append(results[model_label], benchmark_results_ndarray, axis=0)
+                results['misclass'][model_label] = np.append(results['misclass'][model_label], misclass_results_ndarray, axis=0)
+                results['f1'][model_label] = np.append(results['f1'][model_label], f1_results_ndarray, axis=0)
 
             if save_path:
                 np.save(f'{save_path}benchmark_{benchmark}_{num_times}', results)
@@ -1846,10 +1851,10 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
         results (dict): maps model label to np.array of the misclassifications with shape (num_runs x benchmark range)
         benchmark label (string): what you are benchmarking over, will be the x_label
         benchmark_range (array): values that you are benchmarking over
-        mode (string): one of {'misclass', 'accuracy'}, defaults to 'misclass'
+        mode (string): one of {'misclass', 'accuracy', 'f1'}, defaults to 'misclass'
         show_stdev (bool): whether to show fill_between range of 1 stdev over the num_runs, defaults to false
     """
-    mode_options = {'misclass', 'accuracy'}
+    mode_options = {'misclass', 'accuracy', 'f1'}
     if mode not in mode_options:
         raise Exception(f'plot_benchmarks: Possible choices of mode are {mode_options}')
 
@@ -1857,6 +1862,12 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
     fig1, ax1 = plt.subplots()
     i = 0
     num_runs = 1
+
+    if mode == 'misclass' or mode == 'accuracy':
+        results = results['misclass']
+    elif mode == 'f1':
+        results = results['f1']
+
     for label, result in results.items():
         if mode == 'accuracy':
             result = np.ones(result.shape) - result
