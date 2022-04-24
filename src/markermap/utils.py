@@ -1943,6 +1943,21 @@ def process_data(X, Y, filter_data = False):
 
     return np.assarray(aData.X.copy()), Y
 
+def parse_adata(adata):
+    """
+    Split a scanpy adata into X and y, where y is adata.obs['annotation'] converted to numbers using LabelEncoder
+    Args:
+        adata (scanpy adata): The result of something like sc.read_h5ad(), must have .obs['annotation']
+    returns: tuple (X, y, encoder), X data, y as the encoded labels, and the encoder
+    """
+    X = adata.X.copy()
+    labels = adata.obs['annotation'].values
+    encoder = LabelEncoder()
+    encoder.fit(labels)
+    y = encoder.transform(labels)
+    return X, y, encoder
+
+
 def split_data_into_dataloaders_no_test(X, Y, train_size, batch_size = 64, num_workers = 0, seed = None):
     """
     Split X and Y into training set (fraction train_size) and the rest into a validation
