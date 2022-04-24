@@ -406,7 +406,7 @@ l1_vae = VAE_l1_diag.getBenchmarker(
   },
 )
 
-misclass_rates, benchmark_label, benchmark_range = benchmark(
+results, benchmark_label, benchmark_range = benchmark(
   {
     UNSUP_MM: unsupervised_mm,
     SUP_MM: supervised_mm,
@@ -427,4 +427,4 @@ misclass_rates, benchmark_label, benchmark_range = benchmark(
   benchmark_range=k_range,
 )
 
-plot_benchmarks(misclass_rates, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)
+plot_benchmarks(results, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)
