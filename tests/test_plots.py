@@ -1,10 +1,8 @@
-import sys
 import pytest
 import numpy as np
 import matplotlib.pyplot as plt
 
-sys.path.insert(1, './src/')
-from utils import plot_benchmarks
+from markermap.utils import plot_benchmarks
 
 class TestPlotBenchmarks:
   def test_one_model_3_tries(self):

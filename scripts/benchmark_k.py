@@ -4,9 +4,11 @@ from sklearn.preprocessing import LabelEncoder
 import anndata
 import pandas as pd
 import gc
+import scanpy as sc
 
-sys.path.insert(1, './src/')
-from utils import *
+from markermap.utils import SmashPyWrapper, LassoNetWrapper, RandomBaseline
+from markermap.utils import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
+from markermap.utils import benchmark, plot_benchmarks
 
 #Consts
 BASELINE = 'Baseline'
@@ -421,8 +423,8 @@ misclass_rates, benchmark_label, benchmark_range = benchmark(
   X,
   y,
   save_path='checkpoints/',
-  benchmark='label_error',
-  benchmark_range=label_error_range,
+  benchmark='k',
+  benchmark_range=k_range,
 )
 
 plot_benchmarks(misclass_rates, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)

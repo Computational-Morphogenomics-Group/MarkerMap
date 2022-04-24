@@ -1,9 +1,7 @@
-import sys
 import pytest
 import numpy as np
 
-sys.path.insert(1, './src/')
-from utils import mislabel_points
+from markermap.utils import mislabel_points
 
 class TestMislabelPoints:
   y = np.array([1,1,2,1,0,3,4,5,1,2]) #length 10
