@@ -8,7 +8,7 @@ import scanpy as sc
 
 from markermap.utils import SmashPyWrapper, LassoNetWrapper, RandomBaseline
 from markermap.utils import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
-from markermap.utils import benchmark, plot_benchmarks
+from markermap.utils import benchmark, parse_adata, plot_benchmarks
 
 #Consts
 BASELINE = 'Baseline'
@@ -24,14 +24,10 @@ LASSONET = 'LassoNet'
 
 def getZeisel(file_path):
   adata = sc.read_h5ad(file_path)
-  X = adata.X.copy()
   adata.obs['names']=adata.obs['names0']
   adata.obs['annotation'] = adata.obs['names0']
-  labels = adata.obs['names0'].values
-  encoder = LabelEncoder()
-  encoder.fit(labels)
-  y = encoder.transform(labels)
-  return X, y, encoder
+
+  return parse_adata(adata)
 
 def getPaul(housekeeping_genes_dir):
   adata = sc.datasets.paul15()
@@ -69,22 +65,12 @@ def getPaul(housekeeping_genes_dir):
   adata.obs['annotation'] = annotation
   adata.obs['annotation'] = adata.obs['annotation'].astype('category')
 
-  X = adata.X.copy()
-  labels = adata.obs['annotation'].values
-  encoder = LabelEncoder()
-  encoder.fit(labels)
-  y = encoder.transform(labels)
-  return X, y, encoder
+  return parse_adata(adata)
 
 def getCiteSeq(file_path):
   adata = sc.read_h5ad(file_path)
-  X = adata.X.copy()
   adata.obs['annotation'] = adata.obs['names']
-  labels = adata.obs['names'].values
-  encoder = LabelEncoder()
-  encoder.fit(labels)
-  y = encoder.transform(labels)
-  return X, y, encoder
+  return parse_adata(adata)
 
 def relabel_mouse_labels(label):
   if isinstance(label, str):
@@ -210,13 +196,7 @@ def getMouseBrain(dataset_dir):
   sc.pp.log1p(adata_snrna_raw)
   sc.pp.scale(adata_snrna_raw, max_value=10)
 
-  X = adata_snrna_raw.X.copy()
-  labels = adata_snrna_raw.obs['annotation'].values
-  encoder = LabelEncoder()
-  encoder.fit(labels)
-  y = encoder.transform(labels)
-
-  return X, y, encoder
+  return parse_adata(adata_snrna_raw)
 
 
 # Main
