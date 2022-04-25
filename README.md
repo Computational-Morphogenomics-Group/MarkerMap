@@ -2,6 +2,17 @@
 
 MarkerMap is a generative model for selecting the most informative gene markers by projecting cells into a shared, interpretable embedding without sacrificing accuracy.
 
+## Table of Contents
+1. [Installation](#installation)
+	1. [MacOs](#macos)
+	2. [Windows](#windows)
+2. [Quick Start](#quick-start)
+	1. [Simple Example](#simple-example)
+	2. [Benchmark Example](#benchmark-example)
+3. [Features](#features)
+4. [For Developers](#for-developers)
+5. [License](#license)
+
 ## Installation
 
 ### MacOS
@@ -13,9 +24,9 @@ MarkerMap is a generative model for selecting the most informative gene markers 
 ### Windows
 - Coming soon!
 
-## Quick Start
+## Quick Start <a name="quick-start"/>
 
-### Simple Example
+### Simple Example <a name="simple-example"/>
 Copy the code from here, or take a look at `scripts/quick_start.py` for a python script or `notebooks/quick_start.ipynb` for a Jupyter Notebook.
 
 #### Imports
@@ -96,6 +107,83 @@ print(test_rep['weighted avg']['f1-score'])
 plot_confusion_matrix(cm, encoder.classes_)
 ```
 
+### Benchmark Example <a name="benchmark-example"/>
+Now we will do an example where we use the benchmarking tools of the package. Follows the steps from the Simple Example through the data section, then pick up here. Alternatively, checkout out `scripts/quick_start_benchmark.py` for a python script or `notebooks/quick_start_benchmark.ipynb` for a Jupyter Notebook.
+
+#### Define the Models
+Now it is time to define all the models that we are benchmarking. For this tutorial, we will benchmark the three versions of MarkerMap: Supervised, Mixed, and Unsupervised. Each model in this repository comes with a function `getBenchmarker` where we specify all the parameters used for constructing the model and all the parameters used for training the model. The benchmark function will then run and evaluate them all. For this tutorial we will also specify a train argument, `max_epochs` which limits the number of epochs during training.
+
+```
+supervised_marker_map = MarkerMap.getBenchmarker(
+  create_kwargs = {
+    'input_size': X.shape[1],
+    'hidden_layer_size': hidden_layer_size,
+    'z_size': z_size,
+    'num_classes': len(np.unique(y)),
+    'k': k_range[0], # because we are benchmarking over k, this will get replaced by the benchmark function
+    'loss_tradeoff': 0,
+  },
+  train_kwargs = {
+    'max_epochs': max_epochs,
+  }
+)
+
+mixed_marker_map = MarkerMap.getBenchmarker(
+  create_kwargs = {
+    'input_size': X.shape[1],
+    'hidden_layer_size': hidden_layer_size,
+    'z_size': z_size,
+    'num_classes': len(np.unique(y)),
+    'k': k_range[0],
+    'loss_tradeoff': 0.5,
+  },
+  train_kwargs = {
+    'max_epochs': max_epochs,
+  }
+)
+
+unsupervised_marker_map = MarkerMap.getBenchmarker(
+  create_kwargs = {
+    'input_size': X.shape[1],
+    'hidden_layer_size': hidden_layer_size,
+    'z_size': z_size,
+    'num_classes': None, #since it is unsupervised, we can just say that the number of classes is None
+    'k': k_range[0],
+    'loss_tradeoff': 1.0,
+  },
+  train_kwargs = {
+    'max_epochs': max_epochs,
+  },
+)
+```
+
+#### Run the Benchmark
+Finally, we run the benchmark by passing in all the models as a dictionary, the number of times to run the model, the data and labels, the type of benchmark, and the range of values we are benchmarking over. We will set the range of k values as `[10, 25, 50]`, but you may want to go higher in practice. Note that we also add the RandomBaseline model. This model selects k markers at random, and it is always a good idea to include this one because it performs better than might be expected. It is also very fast, so there is little downside.
+
+The benchmark function splits the data, runs each model with the specified k, then trains a simple model on just the k markers and evaluates how they perform on a test set that was not used to train the marker selection model or the simple evaluation model. The results reported have accuracy and f1 score, and we can visualize them in a plot with the plot_benchmarks function.
+
+This function will train each MarkerMap 3 times for a total of 9 runs, so it may take over 10 minutes depending on your hardware. Feel free to comment out some of the models.
+
+```
+k_range = [10, 25, 50]
+
+results, benchmark_label, benchmark_range = benchmark(
+  {
+    'Unsupervised Marker Map': unsupervised_marker_map,
+    'Supervised Marker Map': supervised_marker_map,
+    'Mixed Marker Map': mixed_marker_map,
+    'Baseline': RandomBaseline.getBenchmarker(train_kwargs = { 'k': k_range[0] }),
+  },
+  1, # num_times, how many different random train/test splits to run the models on
+  X,
+  y,
+  benchmark='k',
+  benchmark_range=k_range,
+)
+
+plot_benchmarks(results, benchmark_label, benchmark_range, mode='accuracy')
+```
+
 ## Features
 
 - The MarkerMap package provides functionality to easily benchmark different marker selection methods to evaluate performance under a number of metrics. Each model has a `getBenchmarker` function which takes model constructor parameters and trainer parameters and returns a model function. The `benchmark` function then takes all these model functions, a dataset, and the desired type of benchmarking and runs all the models to easily compare performance. See `scripts/benchmark_k` for examples.
@@ -103,7 +191,7 @@ plot_confusion_matrix(cm, encoder.classes_)
   - k: The number of markers to select from
   - label_error: Given a range of percentages, pick that percent of points in the training + validation set and set their label to a random label form among the existing labels.
 
-## For Developers
+## For Developers <a name="for-developers"/>
 
 - If you are going to be developing this package, also install the following: `pip install pre-commit pytest`
 - In the root directory, run `pre-commit install`. You should see a line like `pre-commit installed at .git/hooks/pre-commit`. Now when you commit to your local branch, it will run `jupyter nbconvert --clean-output` on all the local jupyter notebooks on that branch. This ensures that only clean notebooks are uploaded to the github.
