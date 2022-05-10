@@ -135,7 +135,8 @@ def getZeiselData():
     print(X.shape)
 
     # epsilon = 256 # this is what BGH finds
-    epsilon = X.shape[1]/5
+    # epsilon = X.shape[1]/5
+    epsilon = 128
     k = 10
 
     return X, y, epsilon, k
@@ -152,9 +153,8 @@ def getCiteSeqData():
     y = np.delete(y, outliers)
 
     # epsilon = 64 # given by BGH
-    # epsilon = X.shape[1]/5
-    epsilon = 16
-    k = 25
+    epsilon = X.shape[1]/5
+    k = 100
 
     return X, y, epsilon, k
 
@@ -230,8 +230,16 @@ def getSkreePlots(X, y, epsilon, k, n_evecs):
 def evaluateDiffMapClassification(X, y, epsilon, k, eval_models, num_times=1):
     n_evecs = len(np.unique(y))
 
+    print(X.shape)
+    print(y.shape)
+    print(epsilon)
+    print(k)
+    print(n_evecs)
+
     mydmap = diffusion_map.DiffusionMap.from_sklearn(n_evecs = n_evecs, epsilon=epsilon, alpha=1, k=k)
     mydmap.fit(X)
+
+    print('here')
 
     pca = PCA(n_components=n_evecs)
     X_pca = pca.fit_transform(X)
@@ -339,14 +347,88 @@ def findDiffMapKValue(X, y, epsilon, k_range, display_time=False):
     plt.show()
 
 
+def findDiffMapEpsilon(X, y, epsilon_range, k, num_times=1, display_time=False):
+    # test for different values of k
+    n_evecs = len(np.unique(y))
+
+    runtime = []
+    misclass_rates = []
+
+    #First, train all dmaps over the epsilon range
+    dmaps = {}
+    for epsilon in epsilon_range:
+        print('epsilon:', epsilon)
+
+        mydmap = diffusion_map.DiffusionMap.from_sklearn(n_evecs = n_evecs, epsilon=epsilon, alpha=1, k=k)
+        start_time = time.time()
+        mydmap.fit(X)
+        end_time = time.time() - start_time
+        runtime.append(end_time)
+        dmaps[epsilon] = mydmap
+
+    # PCA baseline
+    pca = PCA(n_components=n_evecs)
+    X_pca = pca.fit_transform(X)
+
+    baseline_rates = []
+    pca_rates = []
+    diff_map_rates = np.zeros((num_times, len(epsilon_range)))
+    for i in range(num_times):
+        _, _, _, train_indices, _, test_indices = split_data_into_dataloaders(X,y, 0.8, 0) # train 80%, val 0%, test 20%
+
+        for idx, epsilon in enumerate(epsilon_range):
+            misclass_rate, _, _ = new_model_metrics(
+                dmaps[epsilon].dmap[train_indices, :],
+                y[train_indices],
+                dmaps[epsilon].dmap[test_indices, :],
+                y[test_indices],
+                # markers=n_evecs,
+            )
+            diff_map_rates[i,idx] = misclass_rate
+
+        baseline_misclass, _, _ = new_model_metrics(X[train_indices, :], y[train_indices], X[test_indices, :], y[test_indices])
+        baseline_rates.append(baseline_misclass)
+
+        pca_misclass, _, _ = new_model_metrics(
+            X_pca[train_indices, :],
+            y[train_indices],
+            X_pca[test_indices, :],
+            y[test_indices],
+        )
+        pca_rates.append(pca_misclass)
+
+    print(diff_map_rates.shape)
+    print(diff_map_rates)
+
+    fig1, ax1 = plt.subplots()
+    ax1.plot(epsilon_range, np.mean(diff_map_rates, axis=0), label='diff_map', marker='o')
+    ax1.hlines(np.mean(baseline_rates), epsilon_range[0], epsilon_range[-1], label='baseline', colors=['red'])
+    ax1.hlines(np.mean(pca_rates), epsilon_range[0], epsilon_range[-1], label='pca', colors=['orange'])
+    ax1.set_xlabel('Epsilon')
+    ax1.set_ylabel('Misclass Rate')
+    ax1.legend()
+
+    if display_time:
+        fig2, ax2 = plt.subplots()
+        ax2.plot(epsilon_range, runtime, label='runtime', marker='o')
+        ax2.set_xlabel('Epsilon')
+        ax2.set_ylabel('Time')
+        ax2.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+
 # MAIN
 # Zeisel
-# k_range = [5,10,20,30,50,100,200,500,1000,2000,3000]
-# X, y, epsilon, k = getZeiselData()
+k_range = [5,10,20,30,50,100,200,500,1000,2000,3000]
+epsilon_range = [128,200,400,800,1000,1500,2000,4000]
+X, y, epsilon, k = getZeiselData()
 
 # # Cite-Seq
-k_range = [5,10,20,30,50,100,200,500,1000,3000,5000,8000]
-X, y, epsilon, k = getCiteSeqData()
+# k_range = [5,10,20,30,50,100,200,500,1000,3000,5000,8000]
+# epsilon_range = [32,64,80,100,150,200,300,500,750,1000]
+# X, y, epsilon, k = getCiteSeqData()
 
 # Paul
 # k_range = [15,20,25,30,50,100,200,300,400,500]
@@ -357,15 +439,16 @@ X, y, epsilon, k = getCiteSeqData()
 
 eval_models = {
     'knn': KNeighborsClassifier(),
-    # 'rf': RandomForestClassifier(),
-    # 'neural network': MLPClassifier(max_iter=1000),
+    'rf': RandomForestClassifier(),
+    'neural network': MLPClassifier(max_iter=1000),
 }
 
 # runDiffMapAndPlotPairs(X, y, epsilon, k, max_plots=7)
 
-evaluateDiffMapClassification(X, y, epsilon, k, num_times=1, eval_models=eval_models)
+# evaluateDiffMapClassification(X, y, epsilon, k, num_times=1, eval_models=eval_models)
 
 # findDiffMapKValue(X, y, epsilon, k_range, display_time=True)
+findDiffMapEpsilon(X, y, epsilon_range, k, num_times=5)
 
 # getSkreePlots(X, y, epsilon, k, n_evecs=100)
 
