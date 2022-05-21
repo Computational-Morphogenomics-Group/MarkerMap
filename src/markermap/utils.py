@@ -17,7 +17,6 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
 import math
-from copy import deepcopy
 
 
 from sklearn.preprocessing import MinMaxScaler, LabelEncoder
