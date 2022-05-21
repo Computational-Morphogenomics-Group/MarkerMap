@@ -48,6 +48,15 @@ MIN_TEMP = 0.0001
 
 
 def form_block(in_size, out_size, batch_norm = True, bias = True):
+    """
+    Constructs a fully connected layer with bias, batch norm, and then leaky relu activation function
+    args:
+        in_size (int): layer input size
+        out_size (int): layer output size
+        batch_norm (bool): use the batch norm in the layers, defaults to True
+        bias (bool): add a bias to the layers, defaults to True
+    returns (array): the layers specified
+    """
     layers = []
     layers.append(nn.Linear(in_size, out_size, bias = bias))
     if batch_norm:
@@ -57,7 +66,16 @@ def form_block(in_size, out_size, batch_norm = True, bias = True):
 
 
 def make_encoder(input_size, hidden_layer_size, z_size, bias = True, batch_norm = True):
-
+    """
+    Construct encoder with 2 hidden layer used in VAE.
+    args:
+        input_size (int): Length of the input vector
+        hidden_size (int): Size of the hidden layers
+        z_size (int): size of encoded layer, latent size
+        bias (bool): add a bias to the layers, defaults to True
+        batch_norm (bool): use the batch norm in the layers, defaults to True
+    returns: torch.nn.Sequential that encodes the input, the output layer for the mean, the output layer for the logvar
+    """
     main_enc = nn.Sequential(
             *form_block(input_size, hidden_layer_size, bias = bias, batch_norm = batch_norm),
             *form_block(hidden_layer_size, hidden_layer_size, bias = bias, batch_norm = batch_norm),
@@ -71,29 +89,37 @@ def make_encoder(input_size, hidden_layer_size, z_size, bias = True, batch_norm 
 
 
 def make_bernoulli_decoder(output_size, hidden_size, z_size, bias = True, batch_norm = True):
-
-    main_dec = nn.Sequential(
-            *form_block(Z_size, hidden_size, bias = bias, batch_norm = batch_norm),
-            nn.Linear(1*hidden_size, output_size, bias = bias),
-            nn.Sigmoid()
-        )
-
-
-    return main_dec
+    """
+    Construct bernoulli decoder with 1 hidden layer used in VAE. See Appendix C.1: https://arxiv.org/pdf/1312.6114.pdf
+    args:
+        output_size (int): Size of the reconstructed output of the VAE, probably the same as the input size
+        hidden_size (int): Size of the hidden layer
+        z_size (int): size of encoded layer, latent size
+        bias (bool): add a bias to the layers, defaults to True
+        batch_norm (bool): use the batch norm in the layers, defaults to True
+    returns: torch.nn.Sequential that decodes the encoded representation
+    """
+    return nn.Sequential(
+        *form_block(z_size, hidden_size, bias = bias, batch_norm = batch_norm),
+        nn.Linear(1*hidden_size, output_size, bias = bias),
+        nn.Sigmoid()
+    )
 
 def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True, batch_norm = True):
-
-    main_dec = nn.Sequential(
-            *form_block(z_size, hidden_size, bias = bias, batch_norm = batch_norm),
-            nn.Linear(1*hidden_size, output_size, bias = bias),
-        )
-
-    dec_logvar = nn.Sequential(
-            *form_block(z_size, hidden_size, bias = bias, batch_norm = batch_norm),
-            nn.Linear(hidden_size, output_size, bias = bias)
-            )
-    
-    return main_dec, dec_logvar
+    """
+    Construct gaussian decoder with 1 hidden layer used in VAE. See Appendix C.2: https://arxiv.org/pdf/1312.6114.pdf
+    args:
+        output_size (int): Size of the reconstructed output of the VAE, probably the same as the input size
+        hidden_size (int): Size of the hidden layer
+        z_size (int): size of encoded layer, latent size
+        bias (bool): add a bias to the layers, defaults to True
+        batch_norm (bool): use the batch norm in the layers, defaults to True
+    returns: torch.nn.Sequential that decodes the encoded representation
+    """
+    return nn.Sequential(
+        *form_block(z_size, hidden_size, bias = bias, batch_norm = batch_norm),
+        nn.Linear(hidden_size, output_size, bias = bias),
+    )
 
 class ExperimentIndices:
     def __init__(self, train_indices, val_indices, test_indices):
@@ -512,7 +538,19 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
 
 
 class VAE(pl.LightningModule, BenchmarkableModel):
-    def __init__(self, input_size, hidden_layer_size, z_size, output_size = None, bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1):
+    def __init__(
+        self,
+        input_size,
+        hidden_layer_size,
+        z_size,
+        output_size = None,
+        bias = True,
+        batch_norm = True,
+        lr = 0.000001,
+        kl_beta = 0.1,
+        decoder = None,
+        dec_logvar = None,
+    ):
         super(VAE, self).__init__()
         self.save_hyperparameters()
 
@@ -522,7 +560,31 @@ class VAE(pl.LightningModule, BenchmarkableModel):
         self.encoder, self.enc_mean, self.enc_logvar = make_encoder(input_size,
                 hidden_layer_size, z_size, bias = bias, batch_norm = batch_norm)
 
-        self.decoder, self.dec_logvar = make_gaussian_decoder(output_size, hidden_layer_size, z_size, bias = bias, batch_norm = batch_norm)
+        if (decoder is not None and dec_logvar is None) or (decoder is None and dec_logvar is not None):
+            print(
+                'VAE::__init__: WARNING! If decoder is specified, dec_logvar should also be specified, and vice versa'
+            )
+
+        if decoder is None:
+            decoder = make_gaussian_decoder(
+                output_size,
+                hidden_layer_size,
+                z_size,
+                bias = bias,
+                batch_norm = batch_norm,
+            )
+
+        if dec_logvar is None:
+            dec_logvar = make_gaussian_decoder(
+                output_size,
+                hidden_layer_size,
+                z_size,
+                bias = bias,
+                batch_norm = batch_norm,
+            )
+
+        self.decoder = decoder
+        self.dec_logvar = dec_logvar
 
         self.lr = lr
         self.kl_beta = kl_beta
@@ -571,8 +633,27 @@ class VAE(pl.LightningModule, BenchmarkableModel):
 
 
 class VAE_l1_diag(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1, l1_lambda = 1):
-        super(VAE_l1_diag, self).__init__(input_size, hidden_layer_size , z_size, bias = bias, batch_norm = batch_norm)
+    def __init__(
+        self,
+        input_size,
+        hidden_layer_size,
+        z_size, bias = True,
+        batch_norm = True,
+        lr = 0.000001,
+        kl_beta = 0.1,
+        l1_lambda = 1,
+        decoder = None,
+        dec_logvar = None,
+    ):
+        super(VAE_l1_diag, self).__init__(
+            input_size,
+            hidden_layer_size,
+            z_size,
+            bias = bias,
+            batch_norm = batch_norm,
+            decoder = decoder,
+            dec_logvar = dec_logvar,
+        )
         assert l1_lambda > 0
         self.save_hyperparameters()
         self.l1_lambda = l1_lambda
@@ -723,8 +804,33 @@ def sample_subset(w, k, t, device, separate = False, gumbel = True, EPSILON = EP
 
 # L1 VAE model we are loading
 class VAE_Gumbel(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 2, temperature_decay = 0.9, bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1, min_temp = MIN_TEMP):
-        super(VAE_Gumbel, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, batch_norm = batch_norm, lr = lr, kl_beta = kl_beta)
+    def __init__(
+        self,
+        input_size,
+        hidden_layer_size,
+        z_size,
+        k,
+        t = 2,
+        temperature_decay = 0.9,
+        bias = True,
+        batch_norm = True,
+        lr = 0.000001,
+        kl_beta = 0.1,
+        min_temp = MIN_TEMP,
+        decoder = None,
+        dec_logvar = None,
+    ):
+        super(VAE_Gumbel, self).__init__(
+            input_size,
+            hidden_layer_size,
+            z_size,
+            bias = bias,
+            batch_norm = batch_norm,
+            lr = lr,
+            kl_beta = kl_beta,
+            decoder = decoder,
+            dec_logvar = dec_logvar,
+        )
         self.save_hyperparameters()
         assert temperature_decay > 0
         assert temperature_decay <= 1
@@ -788,60 +894,38 @@ class VAE_Gumbel(VAE):
         self.log("epoch_avg_train_loss", loss)
         return None
 
-    
-# Not Instance_Wise Gumbel
-class VAE_Gumbel_NInsta(VAE_Gumbel):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1):
-        super(VAE_Gumbel_NInsta, self).__init__(input_size, hidden_layer_size, z_size, k=k, t=t, temperature_decay = temperature_decay, 
-                bias = bias, batch_norm = batch_norm, lr = lr, kl_beta = kl_beta)
-        self.save_hyperparameters()
-        self.method = method
-
-
-    def encode(self, x, training_phase = False, hard_subset = True):
-        if training_phase and hard_subset:
-            raise Exception("Cannot non-differentiable subset selection during training")
-
-
-        w0 = self.weight_creator(x)
-
-        if self.method == 'mean':
-            w = w0.mean(dim = 0).view(1, -1)
-        elif self.method == 'median':
-            w = w0.median(dim = 0)[0].view(1, -1)
-        else:
-            raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
-
-        if not hard_subset:
-            self.subset_indices = sample_subset(w, self.k, self.t, gumbel = training_phase, device = self.device)
-            x = x * self.subset_indices
-        else: 
-            markers = torch.argsort(w.flatten(), descending = True)[:self.k]
-            mask = torch.zeros_like(x)
-            mask.index_fill_(1, markers, 1)
-            x = x * mask
-
-        h1 = self.encoder(x)
-        return self.enc_mean(h1), self.enc_logvar(h1)
-
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        mu_x, logvar_x, mu_latent, logvar_latent = self.forward(x, training_phase = True, hard_subset = False)
-        loss = loss_function_per_autoencoder(x, mu_x, logvar_x, mu_latent, logvar_latent, kl_beta = self.kl_beta) 
-        if torch.isnan(loss).any():
-            raise Exception("nan loss during training")
-        self.log('train_loss', loss)
-        return loss
-
-
 
 # idea of having a Non Instance Wise Gumbel that also has a state to keep consistency across batches
 # probably some repetititon of code, but the issue is this class stuff, this is python 3 tho so it can be put into a good wrapper
 # that doesn't duplicate code
 class VAE_Gumbel_GlobalGate(VAE):
     # alpha is for  the exponential average
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1):
-        super(VAE_Gumbel_GlobalGate, self).__init__(input_size, hidden_layer_size, z_size, bias = bias, batch_norm = batch_norm, lr = lr, kl_beta = kl_beta)
+    def __init__(
+        self,
+        input_size,
+        hidden_layer_size,
+        z_size,
+        k,
+        t = 0.01,
+        temperature_decay = 0.99,
+        bias = True,
+        batch_norm = True,
+        lr = 0.000001,
+        kl_beta = 0.1,
+        decoder = None,
+        dec_logvar = None,
+    ):
+        super(VAE_Gumbel_GlobalGate, self).__init__(
+            input_size,
+            hidden_layer_size,
+            z_size,
+            bias = bias,
+            batch_norm = batch_norm,
+            lr = lr,
+            kl_beta = kl_beta,
+            decoder = decoder,
+            dec_logvar = dec_logvar,
+        )
         self.save_hyperparameters()
         
         self.k = k
@@ -949,9 +1033,37 @@ class VAE_Gumbel_GlobalGate(VAE):
 # that doesn't duplicate code
 class VAE_Gumbel_RunningState(VAE_Gumbel):
     # alpha is for  the exponential average
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, method = 'mean', alpha = 0.9, bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1):
-        super(VAE_Gumbel_RunningState, self).__init__(input_size, hidden_layer_size, z_size, k = k, t = t, temperature_decay = temperature_decay,
-                bias = bias, batch_norm = batch_norm, lr = lr, kl_beta = kl_beta)
+    def __init__(
+        self,
+        input_size,
+        hidden_layer_size,
+        z_size,
+        k,
+        t = 0.01,
+        temperature_decay = 0.99,
+        method = 'mean',
+        alpha = 0.9,
+        bias = True,
+        batch_norm = True,
+        lr = 0.000001,
+        kl_beta = 0.1,
+        decoder = None,
+        dec_logvar = None,
+    ):
+        super(VAE_Gumbel_RunningState, self).__init__(
+            input_size,
+            hidden_layer_size,
+            z_size,
+            k = k,
+            t = t,
+            temperature_decay = temperature_decay,
+            bias = bias,
+            batch_norm = batch_norm,
+            lr = lr,
+            kl_beta = kl_beta,
+            decoder = decoder,
+            dec_logvar = dec_logvar,
+        )
         self.save_hyperparameters()
         self.method = method
 
@@ -1048,19 +1160,46 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
 # not doing multiple inheritance because GumbelClassifier is repeating itself
 class MarkerMap(VAE_Gumbel_RunningState):
 
-    def __init__(self, input_size, hidden_layer_size, z_size, num_classes, k, 
-            t = 3.0, temperature_decay = 0.95, method = 'mean', alpha = 0.95, 
-            bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1, loss_tradeoff = 0.5):
-
-        
+    def __init__(
+        self,
+        input_size,
+        hidden_layer_size,
+        z_size,
+        num_classes,
+        k,
+        t = 3.0,
+        temperature_decay = 0.95,
+        method = 'mean',
+        alpha = 0.95,
+        bias = True,
+        batch_norm = True,
+        lr = 0.000001,
+        kl_beta = 0.1,
+        decoder = None,
+        dec_logvar = None,
+        loss_tradeoff = 0.5,
+    ):
         assert loss_tradeoff <= 1
         assert loss_tradeoff >= 0
         if num_classes is None:
             assert loss_tradeoff == 1
 
-        super(MarkerMap, self).__init__(input_size = input_size, hidden_layer_size = hidden_layer_size, 
-                z_size = z_size, k = k, t = t, temperature_decay = temperature_decay, 
-                method = method, alpha = alpha, batch_norm = batch_norm, bias = bias, lr = lr, kl_beta = kl_beta)
+        super(MarkerMap, self).__init__(
+            input_size = input_size,
+            hidden_layer_size = hidden_layer_size,
+            z_size = z_size,
+            k = k,
+            t = t,
+            temperature_decay = temperature_decay,
+            method = method,
+            alpha = alpha,
+            batch_norm = batch_norm,
+            bias = bias,
+            lr = lr,
+            kl_beta = kl_beta,
+            decoder = decoder,
+            dec_logvar = dec_logvar,
+        )
 
         self.save_hyperparameters()
         self.num_classes = num_classes
@@ -1199,9 +1338,35 @@ class MarkerMap(VAE_Gumbel_RunningState):
 # NMSL is Not My Selection Layer
 # Implementing reference paper
 class ConcreteVAE_NMSL(VAE):
-    def __init__(self, input_size, hidden_layer_size, z_size, k, t = 0.01, temperature_decay = 0.99, bias = True, batch_norm = True, lr = 0.000001, kl_beta = 0.1, min_temp = MIN_TEMP):
+    def __init__(
+        self,
+        input_size,
+        hidden_layer_size,
+        z_size,
+        k,
+        t = 0.01,
+        temperature_decay = 0.99,
+        bias = True,
+        batch_norm = True,
+        lr = 0.000001,
+        kl_beta = 0.1,
+        min_temp = MIN_TEMP,
+        decoder = None,
+        dec_logvar = None,
+    ):
         # k because encoder actually uses k features as its input because of how concrete VAE picks it out
-        super(ConcreteVAE_NMSL, self).__init__(k, hidden_layer_size, z_size, output_size = input_size, bias = bias, batch_norm = batch_norm, lr = lr, kl_beta = kl_beta)
+        super(ConcreteVAE_NMSL, self).__init__(
+            k,
+            hidden_layer_size,
+            z_size,
+            output_size = input_size,
+            bias = bias,
+            batch_norm = batch_norm,
+            lr = lr,
+            kl_beta = kl_beta,
+            decoder = decoder,
+            dec_logvar = dec_logvar,
+        )
         self.save_hyperparameters()
         assert temperature_decay > 0
         assert temperature_decay <= 1
@@ -1660,6 +1825,7 @@ def benchmark(
     batch_size = 64,
     save_path=None,
     benchmark_range=None,
+    eval_model=None,
 ):
     """
     Benchmark a collection of models by a benchmark param on data X,y. If save_path is specified, results are saved
@@ -1676,6 +1842,8 @@ def benchmark(
         batch_size (int): defaults to 64
         save_path (string): if not None, folder to save results to, defaults to None
         benchmark_range (array): values that the benchmark ranges over, defaults to none
+        eval_model (model): simple model to evaluate the markers. Defaults to None, which will then use
+            RandomForestClassifier.
     returns:
         (dict): maps 'misclass' and 'f1' to a dict of model labels to an np.array (num_times x benchmark_levels)
         (string): benchmark
@@ -1724,6 +1892,7 @@ def benchmark(
                         X_test,
                         y_test,
                         markers = markers,
+                        model=eval_model,
                     )
                 elif benchmark == 'label_error':
                     y_err = mislabel_points(y, val, np.concatenate([train_indices, val_indices]))
@@ -1736,6 +1905,7 @@ def benchmark(
                         X_test,
                         y_test,
                         markers = markers,
+                        model=eval_model,
                     )
 
                 misclass_results.append(model_misclass)

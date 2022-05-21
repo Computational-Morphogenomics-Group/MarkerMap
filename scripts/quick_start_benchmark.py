@@ -22,6 +22,7 @@ X, y, encoder = parse_adata(adata)
 
 # The range of k values to run the benchmark on
 k_range = [10, 25, 50]
+k = k_range[0]  #will be unused since we are benchmarking over k_range
 
 # Declare models
 unsupervised_marker_map = MarkerMap.getBenchmarker(
