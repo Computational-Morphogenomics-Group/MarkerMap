@@ -550,6 +550,7 @@ class VAE(pl.LightningModule, BenchmarkableModel):
         lr = 0.000001,
         kl_beta = 0.1,
         decoder = None,
+        dec_logvar = None,
     ):
         super(VAE, self).__init__()
         self.save_hyperparameters()
@@ -560,6 +561,11 @@ class VAE(pl.LightningModule, BenchmarkableModel):
         self.encoder, self.enc_mean, self.enc_logvar = make_encoder(input_size,
                 hidden_layer_size, z_size, bias = bias, batch_norm = batch_norm)
 
+        if (decoder is not None and dec_logvar is None) or (decoder is None and dec_logvar is not None):
+            print(
+                'VAE::__init__: WARNING! If decoder is specified, dec_logvar should also be specified, and vice versa'
+            )
+
         if decoder is None:
             decoder = make_gaussian_decoder(
                 output_size,
@@ -569,8 +575,17 @@ class VAE(pl.LightningModule, BenchmarkableModel):
                 batch_norm = batch_norm,
             )
 
+        if dec_logvar is None:
+            dec_logvar = make_gaussian_decoder(
+                output_size,
+                hidden_layer_size,
+                z_size,
+                bias = bias,
+                batch_norm = batch_norm,
+            )
+
         self.decoder = decoder
-        self.dec_logvar = deepcopy(decoder)
+        self.dec_logvar = dec_logvar
 
         self.lr = lr
         self.kl_beta = kl_beta
@@ -629,6 +644,7 @@ class VAE_l1_diag(VAE):
         kl_beta = 0.1,
         l1_lambda = 1,
         decoder = None,
+        dec_logvar = None,
     ):
         super(VAE_l1_diag, self).__init__(
             input_size,
@@ -637,6 +653,7 @@ class VAE_l1_diag(VAE):
             bias = bias,
             batch_norm = batch_norm,
             decoder = decoder,
+            dec_logvar = dec_logvar,
         )
         assert l1_lambda > 0
         self.save_hyperparameters()
@@ -802,6 +819,7 @@ class VAE_Gumbel(VAE):
         kl_beta = 0.1,
         min_temp = MIN_TEMP,
         decoder = None,
+        dec_logvar = None,
     ):
         super(VAE_Gumbel, self).__init__(
             input_size,
@@ -812,6 +830,7 @@ class VAE_Gumbel(VAE):
             lr = lr,
             kl_beta = kl_beta,
             decoder = decoder,
+            dec_logvar = dec_logvar,
         )
         self.save_hyperparameters()
         assert temperature_decay > 0
@@ -895,6 +914,7 @@ class VAE_Gumbel_GlobalGate(VAE):
         lr = 0.000001,
         kl_beta = 0.1,
         decoder = None,
+        dec_logvar = None,
     ):
         super(VAE_Gumbel_GlobalGate, self).__init__(
             input_size,
@@ -905,6 +925,7 @@ class VAE_Gumbel_GlobalGate(VAE):
             lr = lr,
             kl_beta = kl_beta,
             decoder = decoder,
+            dec_logvar = dec_logvar,
         )
         self.save_hyperparameters()
         
@@ -1028,6 +1049,7 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         lr = 0.000001,
         kl_beta = 0.1,
         decoder = None,
+        dec_logvar = None,
     ):
         super(VAE_Gumbel_RunningState, self).__init__(
             input_size,
@@ -1041,6 +1063,7 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
             lr = lr,
             kl_beta = kl_beta,
             decoder = decoder,
+            dec_logvar = dec_logvar,
         )
         self.save_hyperparameters()
         self.method = method
@@ -1154,6 +1177,7 @@ class MarkerMap(VAE_Gumbel_RunningState):
         lr = 0.000001,
         kl_beta = 0.1,
         decoder = None,
+        dec_logvar = None,
         loss_tradeoff = 0.5,
     ):
         assert loss_tradeoff <= 1
@@ -1175,6 +1199,7 @@ class MarkerMap(VAE_Gumbel_RunningState):
             lr = lr,
             kl_beta = kl_beta,
             decoder = decoder,
+            dec_logvar = dec_logvar,
         )
 
         self.save_hyperparameters()
@@ -1328,6 +1353,7 @@ class ConcreteVAE_NMSL(VAE):
         kl_beta = 0.1,
         min_temp = MIN_TEMP,
         decoder = None,
+        dec_logvar = None,
     ):
         # k because encoder actually uses k features as its input because of how concrete VAE picks it out
         super(ConcreteVAE_NMSL, self).__init__(
@@ -1340,6 +1366,7 @@ class ConcreteVAE_NMSL(VAE):
             lr = lr,
             kl_beta = kl_beta,
             decoder = decoder,
+            dec_logvar = dec_logvar,
         )
         self.save_hyperparameters()
         assert temperature_decay > 0
