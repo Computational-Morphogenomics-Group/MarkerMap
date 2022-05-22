@@ -6,7 +6,7 @@ import pandas as pd
 import gc
 import scanpy as sc
 
-from markermap.utils import SmashPyWrapper, LassoNetWrapper, RandomBaseline
+from markermap.utils import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper
 from markermap.utils import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
 from markermap.utils import benchmark, parse_adata, plot_benchmarks
 
@@ -21,6 +21,7 @@ SUP_MM = 'Supervised Marker Map'
 MIXED_MM = 'Mixed Marker Map'
 CONCRETE_VAE = 'Concrete VAE'
 LASSONET = 'LassoNet'
+RANK_CORR = 'RankCorr'
 
 def getZeisel(file_path):
   adata = sc.read_h5ad(file_path)
@@ -398,6 +399,7 @@ results, benchmark_label, benchmark_range = benchmark(
     SMASH_RF: smash_rf,
     SMASH_DNN: smash_dnn,
     L1_VAE: l1_vae,
+    RANK_CORR: RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),
   },
   num_times,
   X,
