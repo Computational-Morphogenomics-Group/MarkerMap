@@ -8,7 +8,8 @@ from torch.nn import functional as F
 
 
 
-
+from pathlib import Path
+import sys
 import os
 import contextlib
 import queue
@@ -36,6 +37,8 @@ import anndata
 
 from lassonet import LassoNetClassifier
 from smashpy import smashpy
+sys.path.append(str(Path(__file__).parent) + '/../../RankCorr/picturedRocks')
+from rocks import Rocks
 
 import logging
 from functools import partial
@@ -536,6 +539,55 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
 
         return create_kwargs['adata'].var.index.get_indexer(selectedGenes)
 
+class RankCorrWrapper(Rocks, BenchmarkableModel):
+    """
+    Thin wrapper on the RankCorr package Rocks class that also implements the Benchmarkable Model functionality
+    """
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X,
+        y,
+        train_indices,
+        val_indices,
+        train_dataloader,
+        val_dataloader,
+        k=None,
+    ):
+        """
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
+        """
+        if not k:
+            k = train_kwargs['k']
+
+        if 'k' in train_kwargs:
+            train_kwargs.pop('k')
+
+        model = cls(X, y, **create_kwargs)
+        markers = model.CSrankMarkers(**train_kwargs)
+
+        if len(markers) < k:
+            print(
+                f'RankCorrWrapper::benchmarkerFunctional: Tried to find {k} markers, only found {len(markers)},'
+                ' increase lamb parameter in train_kwargs.',
+            )
+        if len(markers) > k:
+            markers = markers[:k]
+
+        return markers
 
 class VAE(pl.LightningModule, BenchmarkableModel):
     def __init__(
