@@ -1,4 +1,5 @@
 import sys
+import argparse
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
 import anndata
@@ -199,19 +200,24 @@ def getMouseBrain(dataset_dir):
 
   return parse_adata(adata_snrna_raw)
 
+def handleArgs(argv):
+  data_name_options = ['zeisel', 'paul', 'cite_seq', 'mouse_brain']
+
+  parser = argparse.ArgumentParser()
+  parser.add_argument('data_name', help='data set name', choices=data_name_options)
+  parser.add_argument('-s', '--save_file', help='the file to save the benchmark results to', default=None)
+  parser.add_argument('-r', '--runs', help='the number of runs', type=int, default=1)
+  parser.add_argument('-g', '--gpus', help='how many gpus to use', type=int, default=None)
+  parser.add_argument('--hidden_layer_size', help='how many hidden layers to use in the VAEs', type=int, default=256)
+
+  args = parser.parse_args()
+
+  return args.data_name, args.save_file, args.runs, args.gpus, args.hidden_layer_size
 
 # Main
-if len(sys.argv) != 2:
-  raise Exception('usage: benchmark_k.py data_set_name')
-
-data_name = sys.argv[1]
-
-data_name_options = { 'zeisel', 'paul', 'cite_seq', 'mouse_brain' }
-if data_name not in data_name_options:
-  raise Exception(f'usage: possible data sets to pick are {data_name_options}')
+data_name, save_file, num_times, gpus, hidden_layer_size = handleArgs(sys.argv)
 
 z_size = 16
-hidden_layer_size = 256
 
 batch_size = 64
 batch_norm = True
@@ -221,11 +227,9 @@ k=25
 
 k_range = [10, 25, 50, 100, 250]
 label_error_range = [0.1, 0.2, 0.5, 0.75, 1]
-num_times = 1
 max_epochs = 100
 
 #pytorch lightning stuff
-gpus = None
 precision=32
 
 if data_name == 'zeisel':
@@ -404,7 +408,7 @@ results, benchmark_label, benchmark_range = benchmark(
   num_times,
   X,
   y,
-  save_path='checkpoints/',
+  save_file=save_file,
   benchmark='k',
   benchmark_range=k_range,
 )
