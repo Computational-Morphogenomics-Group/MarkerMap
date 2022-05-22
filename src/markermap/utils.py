@@ -1875,12 +1875,12 @@ def benchmark(
     train_size = 0.7,
     val_size = 0.1,
     batch_size = 64,
-    save_path=None,
+    save_file=None,
     benchmark_range=None,
     eval_model=None,
 ):
     """
-    Benchmark a collection of models by a benchmark param on data X,y. If save_path is specified, results are saved
+    Benchmark a collection of models by a benchmark param on data X,y. If save_file is specified, results are saved
     when a complete benchmark_range is complete
     args:
         models (dict): maps model labels to a function that runs the model on the data and returns markers
@@ -1892,7 +1892,7 @@ def benchmark(
         train_size (float): 0 to 1, fraction of data for train set, defaults to 0.7
         val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
         batch_size (int): defaults to 64
-        save_path (string): if not None, folder to save results to, defaults to None
+        save_file (string): if not None, file to save results to, defaults to None
         benchmark_range (array): values that the benchmark ranges over, defaults to none
         eval_model (model): simple model to evaluate the markers. Defaults to None, which will then use
             RandomForestClassifier.
@@ -1972,8 +1972,8 @@ def benchmark(
                 results['misclass'][model_label] = np.append(results['misclass'][model_label], misclass_results_ndarray, axis=0)
                 results['f1'][model_label] = np.append(results['f1'][model_label], f1_results_ndarray, axis=0)
 
-            if save_path:
-                np.save(f'{save_path}benchmark_{benchmark}_{num_times}', results)
+            if save_file:
+                np.save(save_file, results)
 
     return results, benchmark, benchmark_range
 
