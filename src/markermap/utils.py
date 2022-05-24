@@ -2066,7 +2066,7 @@ def plot_confusion_matrix(cm,
     plt.show()
 
 
-def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', show_stdev=False):
+def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', show_stdev=False, print_vals=False):
     """
     Plot benchmark results of multiple models over the values that you are benchmarking on
     args:
@@ -2075,6 +2075,7 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
         benchmark_range (array): values that you are benchmarking over
         mode (string): one of {'misclass', 'accuracy', 'f1'}, defaults to 'misclass'
         show_stdev (bool): whether to show fill_between range of 1 stdev over the num_runs, defaults to false
+        print_vals (bool): print the vals that are displayed in the plot
     """
     mode_options = {'misclass', 'accuracy', 'f1'}
     if mode not in mode_options:
@@ -2105,6 +2106,9 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
         #plot the results for this model against the benchmarked range
         ax1.plot(benchmark_range, mean_result, label=label, marker=markers[i])
         i = (i+1) % len(markers)
+
+        if print_vals:
+            print(f'{label}: {mean_result}')
 
     ax1.set_title(f'{mode.capitalize()} Benchmark, over {num_runs} runs')
     ax1.set_xlabel(benchmark_label)
