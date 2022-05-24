@@ -44,7 +44,8 @@ batch_norm = True
 global_t = 3.0
 k=25
 
-k_range = [10, 25, 50, 100, 250]
+# k_range = [10, 25, 50, 100, 250]
+k_range = [50]
 label_error_range = [0.1, 0.2, 0.5, 0.75, 1]
 max_epochs = 100
 
@@ -157,7 +158,7 @@ concrete_vae = ConcreteVAE_NMSL.getBenchmarker(
     'min_epochs': 25,
     'max_epochs': max_epochs,
     'auto_lr': True,
-    'max_lr': 0.0001,
+    'max_lr': 0.001,
     'lr_explore_mode': 'linear',
     'num_lr_rates': 500,
     'precision': precision,
@@ -216,26 +217,32 @@ l1_vae = VAE_l1_diag.getBenchmarker(
   },
 )
 
-results, benchmark_label, benchmark_range = benchmark(
-  {
-    UNSUP_MM: unsupervised_mm,
-    SUP_MM: supervised_mm,
-    MIXED_MM: mixed_mm,
-    BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
-    LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
-    CONCRETE_VAE: concrete_vae,
-    GLOBAL_GATE: global_gate,
-    SMASH_RF: smash_rf,
-    SMASH_DNN: smash_dnn,
-    L1_VAE: l1_vae,
-    RANK_CORR: RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),
-  },
-  num_times,
-  X,
-  y,
-  save_file=save_file,
-  benchmark='k',
-  benchmark_range=k_range,
-)
+# results, benchmark_label, benchmark_range = benchmark(
+#   {
+#     # UNSUP_MM: unsupervised_mm,
+#     SUP_MM: supervised_mm,
+#     # MIXED_MM: mixed_mm,
+#     BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
+#     # LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
+#     # CONCRETE_VAE: concrete_vae,
+#     # GLOBAL_GATE: global_gate,
+#     # SMASH_RF: smash_rf,
+#     # SMASH_DNN: smash_dnn,
+#     # L1_VAE: l1_vae,
+#     # RANK_CORR: RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),
+#   },
+#   num_times,
+#   X,
+#   y,
+#   save_file=save_file,
+#   benchmark='k',
+#   benchmark_range=k_range,
+# )
 
-plot_benchmarks(results, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)
+
+results = np.load('checkpoints/benchmark_k_50_paul_lite.npy', allow_pickle=True).item()
+benchmark_label = 'k'
+benchmark_range = k_range
+print(results)
+
+plot_benchmarks(results, benchmark_label, benchmark_range, mode='accuracy', show_stdev=False)

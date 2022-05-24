@@ -1387,6 +1387,15 @@ class MarkerMap(VAE_Gumbel_RunningState):
             log_probs = self.predict_logprob(X)
         return log_probs.max(dim=1)[1].cpu().numpy()
 
+    def get_reconstruction(self, X):
+        assert self.loss_tradeoff != 0
+
+        X = torch.Tensor(X)
+        X.to(self.device)
+        with torch.no_grad():
+            mu_x = self.forward(X)[0].cpu().numpy()
+        return mu_x
+
 
 # NMSL is Not My Selection Layer
 # Implementing reference paper
