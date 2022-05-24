@@ -288,7 +288,7 @@ supervised_mm = MarkerMap.getBenchmarker(
     'min_epochs': 25,
     'max_epochs': max_epochs,
     'auto_lr': True,
-    'max_lr': 0.0001,
+    'max_lr': 0.001,
     'lr_explore_mode': 'linear',
     'num_lr_rates': 500,
     'precision': precision,
