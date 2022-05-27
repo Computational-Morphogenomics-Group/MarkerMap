@@ -12,9 +12,8 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.decomposition import PCA
 
-from pydiffmap import diffusion_map
-
 from markermap.utils import MarkerMap
+from markermap.utils import SmashPyWrapper
 from markermap.utils import (
   load_model,
   new_model_metrics,
@@ -204,54 +203,6 @@ def getMouseBrain(dataset_dir):
 
 
 
-
-def testPCAProjectionDifference(n):
-  rng = np.random.default_rng()
-  X_real = rng.normal(0, 1, (n, 3))
-
-  pca = PCA(n_components=2)
-  pca.fit(X_real)
-
-  X = rng.normal(0, 1, (n,2))
-  X_orig = pca.inverse_transform(X)
-
-  pca2 = PCA(n_components=3)
-  pca2.fit(X_orig)
-  print(pca2.explained_variance_ratio_)
-
-  plot3d(X_orig, 3)
-
-
-def plot3d(X, n_cols, skip_eigenvecs = {}, colors = None, show=True):
-    assert n_cols <= X.shape[1]
-
-    for i in range(n_cols):
-        if i in skip_eigenvecs:
-            continue
-
-        for j in range(i+1, n_cols):
-            if j in skip_eigenvecs:
-                continue
-
-            for k in range(j+1, n_cols):
-                if k in skip_eigenvecs:
-                    continue
-
-                fig1, ax1 = plt.subplots(subplot_kw={'projection':'3d'})
-                if colors is not None:
-                    ax1.scatter(X[:,i], X[:,j], X[:,k], c=colors, cmap='Spectral')
-                else:
-                    ax1.scatter(X[:,i], X[:,j], X[:,k])
-
-                ax1.set_xlabel(f'Eigenvec {i}')
-                ax1.set_ylabel(f'Eigenvec {j}')
-                ax1.set_zlabel(f'Eigenvec {k}')
-
-    plt.tight_layout()
-
-    if show:
-        plt.show()
-
 def plot2d(X, n_cols, skip_eigenvecs = {}, colors = None, show=True):
     assert n_cols <= X.shape[1]
 
@@ -267,7 +218,7 @@ def plot2d(X, n_cols, skip_eigenvecs = {}, colors = None, show=True):
             if colors is not None:
                 for color in np.unique(colors):
                   color_X = X[colors == color, :]
-                  label = ('original' if color == 'blue' else 'recon')
+                  label = ('Original' if color == 'blue' else 'Reconstructed')
                   ax1.scatter(color_X[:,i], color_X[:,j], c=colors[colors == color], label=label, cmap='Spectral')
             else:
                 ax1.scatter(X[:,i], X[:,j])
@@ -276,31 +227,14 @@ def plot2d(X, n_cols, skip_eigenvecs = {}, colors = None, show=True):
             # for k in range(X.shape[0]):
             #     ax1.annotate(k, (X[k,i], X[k,j]))
 
-            ax1.set_xlabel(f'Eigenvec {i}')
-            ax1.set_ylabel(f'Eigenvec {j}')
+            ax1.set_xlabel(f'Eigenvector {i}', fontname='STIXGeneral')
+            ax1.set_ylabel(f'Eigenvector {j}', fontname='STIXGeneral')
             ax1.legend()
 
     plt.tight_layout()
 
     if show:
         plt.show()
-
-
-def runDiffMapAndPlotPairs(X, epsilon, k, group_indices, recon_X, max_plots=7):
-    n_evecs = len(np.unique(y))
-
-    mydmap = diffusion_map.DiffusionMap.from_sklearn(n_evecs = n_evecs, epsilon=epsilon, alpha=1, k=k)
-    mydmap.fit(X)
-
-    # blue is original, red is reconstructed
-    coords = np.concatenate((mydmap.dmap[group_indices, :], mydmap.transform(recon_X[group_indices, :])))
-    colors = np.concatenate((['blue' for x in range(len(group_indices))], ['red' for x in range(len(group_indices))]))
-
-    print(coords.shape)
-
-    # plot the diffusion embeddings
-    plot2d(coords, n_cols=np.min([n_evecs, max_plots]), colors=colors, show=True)
-
 
 def runPCAAndPlotPairs(X, group_indices, recon_X, max_plots=7):
 
@@ -340,7 +274,7 @@ def runPCAAndPlotPairs(X, group_indices, recon_X, max_plots=7):
     ax1.set_ylabel('Eigenvalue')
     plt.show()
 
-def compareVariances(X, y, recon_X):
+def compareVariances(X, y, recon_X, encoder):
 
   for group in np.unique(y):
     group_indices = np.arange(len(y))[y == group]
@@ -352,20 +286,52 @@ def compareVariances(X, y, recon_X):
     recon_vars = np.var(recon_X_group, axis=0)
 
     percent_data = (len(group_indices) / X.shape[0])
+    group_name = encoder.inverse_transform([group])[0]
 
+    plt.rcParams['font.family'] = 'STIXGeneral'
     fig1, ax1 = plt.subplots()
     ax1.hist(x_vars, bins=30, label='Var(X)')
     ax1.hist(recon_vars, bins=30, label='Var(reconstructed_X)', alpha=0.75)
-    ax1.set_title('Class {group} ({percent:.2%}) Variance Differences Histogram'.format(group=group, percent=percent_data))
-    ax1.set_xlabel('Var(X), Var(reconstructed_X)')
-    ax1.set_ylabel('Count')
+    ax1.set_title(
+      '{group} ({percent:.2%}) Variance Differences Histogram'.format(group=group_name, percent=percent_data),
+      fontname='STIXGeneral',
+    )
+    ax1.set_xlabel('Var(X), Var(reconstructed_X)', fontname='STIXGeneral')
+    ax1.set_ylabel('Count', fontname='STIXGeneral')
     ax1.legend()
 
   plt.tight_layout()
   plt.show()
 
+def splitDiscrimDataRandom(X, recon_X):
+  merged_X = np.concatenate((X, recon_X))
+  merged_y = np.concatenate((np.zeros(X.shape[0]), np.ones(recon_X.shape[0])))
 
-def validateDiscriminator(X, y, recon_X):
+  print(merged_X.shape)
+  print(merged_y.shape)
+
+  _, _, _, train_indices, _, test_indices = split_data_into_dataloaders(
+      merged_X,
+      merged_y,
+      train_size=0.8,
+      val_size=0,
+  )
+
+  merged_X_train = merged_X[train_indices, :]
+  merged_y_train = merged_y[train_indices]
+
+  merged_X_test = merged_X[test_indices, :]
+  merged_y_test = merged_y[test_indices]
+
+  print(merged_X_train.shape)
+  print(merged_y_train.shape)
+  print(merged_X_test.shape)
+  print(merged_y_test.shape)
+
+  return merged_X_train, merged_y_train, merged_X_test, merged_y_test
+
+
+def splitDiscrimDataCareful(X, recon_X):
   _, _, _, train_indices, _, test_indices = split_data_into_dataloaders(
       X,
       y,
@@ -380,41 +346,46 @@ def validateDiscriminator(X, y, recon_X):
   merged_X_train = np.concatenate((X_train, recon_X_train))
   merged_y_train = np.concatenate((np.zeros(X_train.shape[0]), np.ones(recon_X_train.shape[0])))
 
-  split = int(np.floor(len(test_indices)/2))
-  X_test = X[test_indices[:split], :]
-  recon_X_test = X[test_indices[split:], :]
+  # split = int(np.floor(len(test_indices)/2))
+  # X_test = X[test_indices[:split], :]
+  # recon_X_test = X[test_indices[split:], :]
 
-  merged_X_test = np.concatenate((X_test, recon_X_test))
-  merged_y_test = np.concatenate((np.zeros(X_test.shape[0]), np.ones(recon_X_test.shape[0])))
+  # merged_X_test = np.concatenate((X_test, recon_X_test))
+  # merged_y_test = np.concatenate((np.zeros(X_test.shape[0]), np.ones(recon_X_test.shape[0])))
 
-  print(int(np.sqrt(merged_X_train.shape[0])))
+  merged_X_test = np.concatenate((X[test_indices, :], recon_X[test_indices, :]))
+  merged_y_test = np.concatenate((np.zeros(len(test_indices)), np.ones(len(test_indices))))
 
+  return merged_X_train, merged_y_train, merged_X_test, merged_y_test
+
+
+def validateDiscriminator(X_train, y_train, X_test, y_test):
   knn_misclass, _, knn_cm = new_model_metrics(
-    merged_X_train,
-    merged_y_train,
-    merged_X_test,
-    merged_y_test,
-    model=KNeighborsClassifier(n_neighbors=int(np.sqrt(merged_X_train.shape[0]))),
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    model=KNeighborsClassifier(n_neighbors=int(np.sqrt(X_train.shape[0]))),
   )
 
   rf_misclass, _, rf_cm = new_model_metrics(
-    merged_X_train,
-    merged_y_train,
-    merged_X_test,
-    merged_y_test,
+    X_train,
+    y_train,
+    X_test,
+    y_test,
   )
 
   nn_misclass, _, nn_cm = new_model_metrics(
-    merged_X_train,
-    merged_y_train,
-    merged_X_test,
-    merged_y_test,
+    X_train,
+    y_train,
+    X_test,
+    y_test,
     model = MLPClassifier(hidden_layer_sizes=(20,), max_iter=100),
   )
 
-  print('knn:', knn_misclass) #knn just predicts everything is original
-  print('rf: ', rf_misclass) #perfectly predicts everything
-  print('nn: ', nn_misclass) #close,
+  print('knn:', 1-knn_misclass)
+  print('rf: ', 1-rf_misclass)
+  print('nn: ', 1-nn_misclass)
 
   plot_confusion_matrix(knn_cm, ['original', 'recon'])
   plot_confusion_matrix(rf_cm, ['original', 'recon'])
@@ -439,6 +410,7 @@ def handleArgs(argv):
 data_name, save_model, num_times, gpus, hidden_layer_size, k = handleArgs(sys.argv)
 
 z_size = 16
+plt.rcParams['font.family'] = 'STIXGeneral'
 
 if data_name == 'zeisel':
   X, y, encoder = getZeisel('data/zeisel/Zeisel.h5ad')
@@ -450,28 +422,35 @@ elif data_name == 'mouse_brain':
   X, y, encoder = getMouseBrain('data/mouse_brain_broad/')
 
 # # we will use 80% training data, 20% vaidation data during the training of the marker map
-# train_dataloader, val_dataloader, train_indices, val_indices = split_data_into_dataloaders_no_test(
+# train_dataloader, val_dataloader, _, train_indices, val_indices, test_indices = split_data_into_dataloaders(
 #     X,
 #     y,
-#     train_size=0.8,
+#     train_size=0.7,
+#     val_size=0.1,
 # )
 
 # input_size = X.shape[1]
 # unsupervised_marker_map = MarkerMap(input_size, hidden_layer_size, z_size, num_classes=None, k=k, loss_tradeoff=1)
 
-# train_save_model(unsupervised_marker_map, train_dataloader, val_dataloader, save_model, 50, 600)
+# if save_model:
+#   train_save_model(unsupervised_marker_map, train_dataloader, val_dataloader, save_model, 50, 600)
+# else:
+#   train_model(unsupervised_marker_map, train_dataloader, val_dataloader)
 
 unsupervised_marker_map = load_model(MarkerMap, save_model)
 
 recon_X = unsupervised_marker_map.get_reconstruction(X)
 
 
-# group_indices = np.arange(len(y))[y == 0]
-# print(len(group_indices))
-# runPCAAndPlotPairs(X, group_indices, recon_X, max_plots=4)
+group_indices = np.arange(len(y))[y == 0]
+print(len(group_indices))
+runPCAAndPlotPairs(X, group_indices, recon_X, max_plots=8)
 # runDiffMapAndPlotPairs(X, 800, 10, group_indices, recon_X)
 
-# compareVariances(X, y, recon_X)
+# compareVariances(X, y, recon_X, encoder)
 
-validateDiscriminator(X, y, recon_X)
+# X_train, y_train, X_test, y_test = splitDiscrimDataCareful(X, recon_X)
+# X_train, y_train, X_test, y_test = splitDiscrimDataRandom(X, recon_X)
+# validateDiscriminator(X_train, y_train, X_test, y_test)
+
 # testPCAProjectionDifference(100)

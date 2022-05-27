@@ -575,6 +575,7 @@ class RankCorrWrapper(Rocks, BenchmarkableModel):
             k = train_kwargs['k']
 
         if 'k' in train_kwargs:
+            train_kwargs = { **train_kwargs } #copy train_kwargs so later iterations have 'k'
             train_kwargs.pop('k')
 
         model = cls(X, y, **create_kwargs)
