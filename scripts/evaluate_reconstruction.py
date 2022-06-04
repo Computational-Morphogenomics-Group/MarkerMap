@@ -26,12 +26,8 @@ from markermap.utils import (
   get_mouse_brain,
   get_paul,
   get_zeisel,
-  load_model,
-  parse_adata,
   split_data_into_dataloaders,
-  split_data_into_dataloaders_no_test,
   train_model,
-  train_save_model,
 )
 
 EMPTY_GROUP = -10000
@@ -109,7 +105,7 @@ def getL2(X, recon_X, y, groups):
   return l2_overall, l2_by_group
 
 
-def trainAndGetReconMarkerMap(hidden_layer_size, z_size, k, train_dataloader, val_dataloader, X_test):
+def trainAndGetReconMarkerMap(hidden_layer_size, z_size, k, train_dataloader, val_dataloader, X_test, gpus):
   unsupervised_marker_map = MarkerMap(
     X_test.shape[1],
     hidden_layer_size,
@@ -118,7 +114,7 @@ def trainAndGetReconMarkerMap(hidden_layer_size, z_size, k, train_dataloader, va
     k=k,
     loss_tradeoff=1,
   )
-  train_model(unsupervised_marker_map, train_dataloader, val_dataloader, lr_explore_mode='linear', num_lr_rates=500)
+  train_model(unsupervised_marker_map, train_dataloader, val_dataloader, lr_explore_mode='linear', num_lr_rates=500, gpus=gpus)
   return unsupervised_marker_map.get_reconstruction(X_test)
 
 def trainAndGetRecon_scVI(X_train, X_test):
@@ -127,7 +123,7 @@ def trainAndGetRecon_scVI(X_train, X_test):
 
   scvi.model.SCVI.setup_anndata(adata_train, layer='counts')
   model = scvi.model.SCVI(adata_train)
-  model.train()
+  model.train() #this is much faster with a GPU
 
   adata_test = anndata.AnnData(X_test)
   adata_test.layers['counts'] = adata_test.X.copy()
@@ -176,13 +172,11 @@ elif data_name == 'paul':
 elif data_name == 'cite_seq':
   X, y, encoder = get_citeseq('data/cite_seq/CITEseq.h5ad')
 elif data_name == 'mouse_brain':
-  X, y, encoder = parse_adata(sc.read_h5ad('checkpoints/mouse_brain_adata_pp'))
-
-  # X, y, encoder = get_mouse_brain(
-  #   'data/mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
-  #   'data/mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
-  #   log_transform=False, #scVI requires counts, so we will normalize and log transform after.
-  # )
+  X, y, encoder = get_mouse_brain(
+    'data/mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
+    'data/mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
+    log_transform=False, #scVI requires counts, so we will normalize and log transform after.
+  )
 
   scVI_X = X
 
@@ -213,7 +207,6 @@ for i in range(num_times):
       train_size=0.7,
       val_size=0.1,
   )
-  print(train_indices)
   y_test = y[test_indices]
   groups = np.unique(y)
 
@@ -229,6 +222,7 @@ for i in range(num_times):
         train_dataloader,
         val_dataloader,
         X_test,
+        gpus,
       )
 
     if model == 'scVI':
@@ -258,7 +252,8 @@ for i in range(num_times):
     insertOrConcatenate(results, model, 'spearman_p_all', spearman_p_all)
     insertOrConcatenate(results, model, 'spearman_p_groups', spearman_p)
 
-  np.save(f'checkpoints/recon_{data_name}_{num_times}', results)
+  if (save_model):
+    np.save(save_model, results)
 
 print(results)
 
