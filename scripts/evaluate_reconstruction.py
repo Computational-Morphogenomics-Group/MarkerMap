@@ -1,395 +1,149 @@
 import sys
 import argparse
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
-import anndata
-import pandas as pd
-import gc
-import scanpy as sc
 import matplotlib.pyplot as plt
+import scanpy as sc
+import seaborn as sns
 
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.decomposition import PCA
+import scipy.stats as stats
+import anndata
+
+#scVI sets the global seed to 0 on import, so we need to do this first
+#when/if we move split_into_dataloarders to use default_rng() then we don't need to worry
+seed = np.random.randint(low=1, high = 1000000)
+
+import scvi
+
+np.random.seed(seed)
 
 from markermap.utils import MarkerMap
 from markermap.utils import SmashPyWrapper
 from markermap.utils import (
+  get_citeseq,
+  get_mouse_brain,
+  get_paul,
+  get_zeisel,
   load_model,
-  new_model_metrics,
   parse_adata,
-  plot_confusion_matrix,
   split_data_into_dataloaders,
   split_data_into_dataloaders_no_test,
   train_model,
   train_save_model,
 )
 
-def getZeisel(file_path):
-  adata = sc.read_h5ad(file_path)
-  adata.obs['names']=adata.obs['names0']
-  adata.obs['annotation'] = adata.obs['names0']
+EMPTY_GROUP = -10000
 
-  return parse_adata(adata)
+def getTopVariances(arr, num_variances):
+  assert num_variances <= len(arr)
+  arr_copy = arr.copy()
 
-def getPaul(housekeeping_genes_dir):
-  adata = sc.datasets.paul15()
-  sm = SmashPyWrapper()
-  sm.data_preparation(adata)
-  adata = sm.remove_general_genes(adata)
-  adata = sm.remove_housekeepingenes(adata, path=[housekeeping_genes_dir + 'house_keeping_genes_Mouse_bone_marrow.txt'])
-  adata = sm.remove_housekeepingenes(adata, path=[housekeeping_genes_dir + 'house_keeping_genes_Mouse_HSC.txt'])
-  dict_annotation = {}
+  indices = set()
+  for i in range(num_variances):
+    idx = np.argmax(arr_copy)
+    indices.add(idx)
+    arr_copy[idx] = -1
 
-  dict_annotation['1Ery']='Ery'
-  dict_annotation['2Ery']='Ery'
-  dict_annotation['3Ery']='Ery'
-  dict_annotation['4Ery']='Ery'
-  dict_annotation['5Ery']='Ery'
-  dict_annotation['6Ery']='Ery'
-  dict_annotation['7MEP']='MEP'
-  dict_annotation['8Mk']='Mk'
-  dict_annotation['9GMP']='GMP'
-  dict_annotation['10GMP']='GMP'
-  dict_annotation['11DC']='DC'
-  dict_annotation['12Baso']='Baso'
-  dict_annotation['13Baso']='Baso'
-  dict_annotation['14Mo']='Mo'
-  dict_annotation['15Mo']='Mo'
-  dict_annotation['16Neu']='Neu'
-  dict_annotation['17Neu']='Neu'
-  dict_annotation['18Eos']='Eos'
-  dict_annotation['19Lymph']='Lymph'
+  return indices
 
-  annotation = []
-  for celltype in adata.obs['paul15_clusters'].tolist():
-      annotation.append(dict_annotation[celltype])
+def l2(X1, X2):
+  # (n x 1) matrix of l2 norm of each cell
+  l2_cells = np.matmul(np.power(X1 - X2, 2), np.ones((X1.shape[1], 1)))
+  return np.mean(np.power(l2_cells, 0.5))
 
-  adata.obs['annotation'] = annotation
-  adata.obs['annotation'] = adata.obs['annotation'].astype('category')
+def jaccard(X1, X2, num_variances):
+  x_vars = np.var(X1, axis=0)
+  recon_vars = np.var(X2, axis=0)
 
-  return parse_adata(adata)
+  x_top_vars = getTopVariances(x_vars, num_variances)
+  recon_top_vars = getTopVariances(recon_vars, num_variances)
 
-def getCiteSeq(file_path):
-  adata = sc.read_h5ad(file_path)
-  adata.obs['annotation'] = adata.obs['names']
-  return parse_adata(adata)
+  return len(x_top_vars & recon_top_vars)/len(x_top_vars | recon_top_vars)
 
-def relabel_mouse_labels(label):
-  if isinstance(label, str):
-    return label.split('_')[0]
-  else:
-    return label
+def analyzeVariance(X, recon_X, y, groups, num_variances):
+  jaccard_index = EMPTY_GROUP*np.ones(len(groups))
+  spearman_rho = EMPTY_GROUP*np.ones(len(groups))
+  spearman_p = EMPTY_GROUP*np.ones(len(groups))
 
-def remove_features_pct(adata, group_by=None, pct=0.3):
-  if group_by is None:
-    print("select a group_by in .obs")
-    return
-  if group_by not in adata.obs.columns:
-    print("group_by must be in .obs")
-    return
-
-
-  list_keep_genes = []
-
-  df = pd.DataFrame(data=False,
-            index=adata.var.index.tolist(),
-            columns=adata.obs[group_by].cat.categories)
-  for g in adata.obs[group_by].cat.categories:
-    reduced = adata[adata.obs[group_by]==g]
-    boolean, values = sc.pp.filter_genes(reduced, min_cells = reduced.n_obs*pct, inplace=False)
-    df[g] = boolean
-  dfT = df.T
-  for g in dfT.columns:
-    if True in dfT[g].tolist():
-      list_keep_genes.append(True)
-    else:
-      list_keep_genes.append(False)
-
-  adata.var["general"] = list_keep_genes
-
-  adata = adata[:, adata.var["general"]]
-
-  return adata
-
-def remove_features_pct_2groups(adata, group_by=None, pct1=0.9, pct2=0.5):
-  if group_by is None:
-    print("select a group_by in .obs")
-    return
-  if group_by not in adata.obs.columns:
-    print("group_by must be in .obs")
-    return
-
-
-  list_keep_genes = []
-
-  df = pd.DataFrame(data=False,
-                      index=adata.var.index.tolist(),
-                      columns=adata.obs[group_by].cat.categories)
-  for g in adata.obs[group_by].cat.categories:
-    reduced = adata[adata.obs[group_by]==g]
-    boolean, values = sc.pp.filter_genes(reduced, min_cells = reduced.n_obs*(pct1), inplace=False)
-    df[g] = boolean
-  dfT = df.T
-  for g in dfT.columns:
-    if (sum(dfT[g].tolist())/len(dfT[g].tolist())) >= pct2:
-      list_keep_genes.append(False)
-    else:
-      list_keep_genes.append(True)
-
-  adata.var["general"] = list_keep_genes
-
-  adata = adata[:, adata.var["general"]]
-
-  return adata
-
-
-def getMouseBrain(dataset_dir):
-  adata_snrna_raw = anndata.read_h5ad(dataset_dir + 'mouse_brain_all_cells_20200625.h5ad')
-  del adata_snrna_raw.raw
-  adata_snrna_raw = adata_snrna_raw
-  adata_snrna_raw.X = adata_snrna_raw.X.toarray()
-  ## Cell type annotations
-  labels = pd.read_csv(dataset_dir + 'snRNA_annotation_astro_subtypes_refined59_20200823.csv', index_col=0)
-  labels['annotation'] = labels['annotation_1'].apply(lambda x: relabel_mouse_labels(x))
-  labels = labels[['annotation']]
-  labels = labels.reindex(index=adata_snrna_raw.obs_names)
-  adata_snrna_raw.obs[labels.columns] = labels
-  adata_snrna_raw = adata_snrna_raw[~adata_snrna_raw.obs['annotation'].isna(), :]
-  adata_snrna_raw = adata_snrna_raw[adata_snrna_raw.obs["annotation"]!='Unk']
-  adata_snrna_raw.obs['annotation'] = adata_snrna_raw.obs['annotation'].astype('category')
-
-  # doing this cuz smash was a lot of data
-  #https://cell2location.readthedocs.io/en/latest/notebooks/cell2location_estimating_signatures.html
-  #preprocess_like_cell_location
-  sc.pp.filter_cells(adata_snrna_raw, min_genes=1)
-  print(adata_snrna_raw.shape)
-  sc.pp.filter_genes(adata_snrna_raw, min_cells=1)
-  print(adata_snrna_raw.shape)
-
-  gc.collect()
-  # calculate the mean of each gene across non-zero cells
-  adata_snrna_raw.var['n_cells'] = (adata_snrna_raw.X > 0).sum(0)
-  adata_snrna_raw.var['nonz_mean'] = adata_snrna_raw.X.sum(0) / adata_snrna_raw.var['n_cells']
-
-  nonz_mean_cutoff = np.log10(1.12) # cut off for expression in non-zero cells
-  cell_count_cutoff = np.log10(adata_snrna_raw.shape[0] * 0.0005) # cut off percentage for cells with higher expression
-  cell_count_cutoff2 = np.log10(adata_snrna_raw.shape[0] * 0.03)# cut off percentage for cells with small expression
-
-
-  adata_snrna_raw[:,(np.array(np.log10(adata_snrna_raw.var['nonz_mean']) > nonz_mean_cutoff)
-          | np.array(np.log10(adata_snrna_raw.var['n_cells']) > cell_count_cutoff2))
-      & np.array(np.log10(adata_snrna_raw.var['n_cells']) > cell_count_cutoff)].shape
-
-  # select genes based on mean expression in non-zero cells
-  adata_snrna_raw = adata_snrna_raw[:,(np.array(np.log10(adata_snrna_raw.var['nonz_mean']) > nonz_mean_cutoff)
-          | np.array(np.log10(adata_snrna_raw.var['n_cells']) > cell_count_cutoff2))
-      & np.array(np.log10(adata_snrna_raw.var['n_cells']) > cell_count_cutoff)
-              & np.array(~adata_snrna_raw.var['SYMBOL'].isna())]
-  gc.collect()
-  adata_snrna_raw.raw = adata_snrna_raw
-  adata_snrna_raw.X = adata_snrna_raw.raw.X.copy()
-  del adata_snrna_raw.raw
-  gc.collect()
-  adata_snrna_raw = remove_features_pct(adata_snrna_raw, group_by="annotation", pct=0.3)
-  gc.collect()
-  adata_snrna_raw = remove_features_pct_2groups(adata_snrna_raw, group_by="annotation", pct1=0.75, pct2=0.5)
-
-  sc.pp.normalize_per_cell(adata_snrna_raw, counts_per_cell_after=1e4)
-  sc.pp.log1p(adata_snrna_raw)
-  sc.pp.scale(adata_snrna_raw, max_value=10)
-
-  return parse_adata(adata_snrna_raw)
-
-
-
-def plot2d(X, n_cols, skip_eigenvecs = {}, colors = None, show=True):
-    assert n_cols <= X.shape[1]
-
-    for i in range(n_cols):
-        if i in skip_eigenvecs:
-            continue
-
-        for j in range(i+1, n_cols):
-            if j in skip_eigenvecs:
-                continue
-
-            fig1, ax1 = plt.subplots()
-            if colors is not None:
-                for color in np.unique(colors):
-                  color_X = X[colors == color, :]
-                  label = ('Original' if color == 'blue' else 'Reconstructed')
-                  ax1.scatter(color_X[:,i], color_X[:,j], c=colors[colors == color], label=label, cmap='Spectral')
-            else:
-                ax1.scatter(X[:,i], X[:,j])
-
-            # used for finding the eigenvalue outliers, prob a better way of doing this?
-            # for k in range(X.shape[0]):
-            #     ax1.annotate(k, (X[k,i], X[k,j]))
-
-            ax1.set_xlabel(f'Eigenvector {i}', fontname='STIXGeneral')
-            ax1.set_ylabel(f'Eigenvector {j}', fontname='STIXGeneral')
-            ax1.legend()
-
-    plt.tight_layout()
-
-    if show:
-        plt.show()
-
-def runPCAAndPlotPairs(X, group_indices, recon_X, max_plots=7):
-
-    # X = X[group_indices, :]
-    # recon_X = recon_X[group_indices, :]
-
-    n_evecs = np.min([X.shape[1], X.shape[0]])
-
-    pca = PCA(n_components=n_evecs)
-    pca.fit(X)
-
-    # blue is original, red is reconstructed
-    coords = np.concatenate((pca.transform(X[group_indices, :]), pca.transform(recon_X[group_indices, :])))
-    colors = np.concatenate((['blue' for x in range(len(group_indices))], ['red' for x in range(len(group_indices))]))
-
-    print(coords.shape)
-
-    # plot the diffusion embeddings
-    plot2d(coords, n_cols=np.min([n_evecs, max_plots]), colors=colors, show=False)
-
-
-    total_explained_variance = 0
-    eig_index = 0
-    for i in range(len(pca.explained_variance_ratio_)):
-      total_explained_variance += pca.explained_variance_ratio_[i]
-      eig_index = i
-      if (total_explained_variance > 0.90):
-        break
-
-    print(eig_index)
-    print(total_explained_variance)
-
-    fig1, ax1 = plt.subplots()
-    ax1.plot(range(len(pca.explained_variance_ratio_)), pca.explained_variance_ratio_, marker='o')
-    ax1.set_title('PCA Eigenvalue')
-    ax1.set_xlabel('Index')
-    ax1.set_ylabel('Eigenvalue')
-    plt.show()
-
-def compareVariances(X, y, recon_X, encoder):
-
-  for group in np.unique(y):
+  for group in groups:
     group_indices = np.arange(len(y))[y == group]
+
+    if (len(group_indices) == 0):
+      continue
 
     X_group = X[group_indices, :]
     recon_X_group = recon_X[group_indices, :]
 
-    x_vars = np.var(X_group, axis=0)
-    recon_vars = np.var(recon_X_group, axis=0)
+    jaccard_index[group] = jaccard(X_group, recon_X_group, num_variances)
 
-    percent_data = (len(group_indices) / X.shape[0])
-    group_name = encoder.inverse_transform([group])[0]
+    rho, p = stats.spearmanr(np.var(X_group, axis=0), np.var(recon_X_group, axis=0), alternative='greater')
+    spearman_rho[group] = rho
+    spearman_p[group] = p
 
-    plt.rcParams['font.family'] = 'STIXGeneral'
-    fig1, ax1 = plt.subplots()
-    ax1.hist(x_vars, bins=30, label='Var(X)')
-    ax1.hist(recon_vars, bins=30, label='Var(reconstructed_X)', alpha=0.75)
-    ax1.set_title(
-      '{group} ({percent:.2%}) Variance Differences Histogram'.format(group=group_name, percent=percent_data),
-      fontname='STIXGeneral',
-    )
-    ax1.set_xlabel('Var(X), Var(reconstructed_X)', fontname='STIXGeneral')
-    ax1.set_ylabel('Count', fontname='STIXGeneral')
-    ax1.legend()
-
-  plt.tight_layout()
-  plt.show()
-
-def splitDiscrimDataRandom(X, recon_X):
-  merged_X = np.concatenate((X, recon_X))
-  merged_y = np.concatenate((np.zeros(X.shape[0]), np.ones(recon_X.shape[0])))
-
-  print(merged_X.shape)
-  print(merged_y.shape)
-
-  _, _, _, train_indices, _, test_indices = split_data_into_dataloaders(
-      merged_X,
-      merged_y,
-      train_size=0.8,
-      val_size=0,
+  jaccard_overall = jaccard(X, recon_X, num_variances)
+  spearman_rho_overall, spearman_p_overall = stats.spearmanr(
+    np.var(X, axis=0),
+    np.var(recon_X, axis=0),
+    alternative='greater',
   )
 
-  merged_X_train = merged_X[train_indices, :]
-  merged_y_train = merged_y[train_indices]
-
-  merged_X_test = merged_X[test_indices, :]
-  merged_y_test = merged_y[test_indices]
-
-  print(merged_X_train.shape)
-  print(merged_y_train.shape)
-  print(merged_X_test.shape)
-  print(merged_y_test.shape)
-
-  return merged_X_train, merged_y_train, merged_X_test, merged_y_test
+  return jaccard_overall, jaccard_index, spearman_rho_overall, spearman_rho, spearman_p_overall, spearman_p
 
 
-def splitDiscrimDataCareful(X, recon_X):
-  _, _, _, train_indices, _, test_indices = split_data_into_dataloaders(
-      X,
-      y,
-      train_size=0.8,
-      val_size=0,
+def getL2(X, recon_X, y, groups):
+  l2_by_group = EMPTY_GROUP*np.ones(len(groups))
+  for group in groups:
+    group_indices = np.arange(len(y))[y == group]
+
+    if (len(group_indices) == 0):
+      continue
+
+    X_group = X[group_indices, :]
+    recon_X_group = recon_X[group_indices, :]
+
+    l2_by_group[group] = l2(X_group, recon_X_group)
+
+  l2_overall = l2(X, recon_X)
+  return l2_overall, l2_by_group
+
+
+def trainAndGetReconMarkerMap(hidden_layer_size, z_size, k, train_dataloader, val_dataloader, X_test):
+  unsupervised_marker_map = MarkerMap(
+    X_test.shape[1],
+    hidden_layer_size,
+    z_size,
+    num_classes=None,
+    k=k,
+    loss_tradeoff=1,
   )
+  train_model(unsupervised_marker_map, train_dataloader, val_dataloader, lr_explore_mode='linear', num_lr_rates=500)
+  return unsupervised_marker_map.get_reconstruction(X_test)
 
-  split = int(np.floor(len(train_indices)/2))
-  X_train = X[train_indices[:split], :]
-  recon_X_train = X[train_indices[split:], :]
+def trainAndGetRecon_scVI(X_train, X_test):
+  adata_train = anndata.AnnData(X_train)
+  adata_train.layers['counts'] = adata_train.X.copy()
 
-  merged_X_train = np.concatenate((X_train, recon_X_train))
-  merged_y_train = np.concatenate((np.zeros(X_train.shape[0]), np.ones(recon_X_train.shape[0])))
+  scvi.model.SCVI.setup_anndata(adata_train, layer='counts')
+  model = scvi.model.SCVI(adata_train)
+  model.train()
 
-  # split = int(np.floor(len(test_indices)/2))
-  # X_test = X[test_indices[:split], :]
-  # recon_X_test = X[test_indices[split:], :]
+  adata_test = anndata.AnnData(X_test)
+  adata_test.layers['counts'] = adata_test.X.copy()
 
-  # merged_X_test = np.concatenate((X_test, recon_X_test))
-  # merged_y_test = np.concatenate((np.zeros(X_test.shape[0]), np.ones(recon_X_test.shape[0])))
+  return model.posterior_predictive_sample(adata_test)
 
-  merged_X_test = np.concatenate((X[test_indices, :], recon_X[test_indices, :]))
-  merged_y_test = np.concatenate((np.zeros(len(test_indices)), np.ones(len(test_indices))))
+def insertOrConcatenate(results, key1, key2, val):
+  if np.isscalar(val):
+    val = val*np.ones((1,1))
+  else:
+    val = val.reshape((1,len(val))) #ensure its a row vector
 
-  return merged_X_train, merged_y_train, merged_X_test, merged_y_test
-
-
-def validateDiscriminator(X_train, y_train, X_test, y_test):
-  knn_misclass, _, knn_cm = new_model_metrics(
-    X_train,
-    y_train,
-    X_test,
-    y_test,
-    model=KNeighborsClassifier(n_neighbors=int(np.sqrt(X_train.shape[0]))),
-  )
-
-  rf_misclass, _, rf_cm = new_model_metrics(
-    X_train,
-    y_train,
-    X_test,
-    y_test,
-  )
-
-  nn_misclass, _, nn_cm = new_model_metrics(
-    X_train,
-    y_train,
-    X_test,
-    y_test,
-    model = MLPClassifier(hidden_layer_sizes=(20,), max_iter=100),
-  )
-
-  print('knn:', 1-knn_misclass)
-  print('rf: ', 1-rf_misclass)
-  print('nn: ', 1-nn_misclass)
-
-  plot_confusion_matrix(knn_cm, ['original', 'recon'])
-  plot_confusion_matrix(rf_cm, ['original', 'recon'])
-  plot_confusion_matrix(nn_cm, ['original', 'recon'])
+  if (results[key1][key2] is None):
+    results[key1][key2] = val
+  else:
+    results[key1][key2] = np.concatenate((results[key1][key2], val), axis=0)
 
 def handleArgs(argv):
   data_name_options = ['zeisel', 'paul', 'cite_seq', 'mouse_brain']
@@ -413,44 +167,98 @@ z_size = 16
 plt.rcParams['font.family'] = 'STIXGeneral'
 
 if data_name == 'zeisel':
-  X, y, encoder = getZeisel('data/zeisel/Zeisel.h5ad')
+  X, y, encoder = get_zeisel('data/zeisel/Zeisel.h5ad')
 elif data_name == 'paul':
-  X, y, encoder = getPaul('data/paul15/')
+  X, y, encoder = get_paul(
+    'data/paul15/house_keeping_genes_Mouse_bone_marrow.txt',
+    'data/paul15/house_keeping_genes_Mouse_HSC.txt',
+  )
 elif data_name == 'cite_seq':
-  X, y, encoder = getCiteSeq('data/cite_seq/CITEseq.h5ad')
+  X, y, encoder = get_citeseq('data/cite_seq/CITEseq.h5ad')
 elif data_name == 'mouse_brain':
-  X, y, encoder = getMouseBrain('data/mouse_brain_broad/')
+  X, y, encoder = parse_adata(sc.read_h5ad('checkpoints/mouse_brain_adata_pp'))
 
-# # we will use 80% training data, 20% vaidation data during the training of the marker map
-# train_dataloader, val_dataloader, _, train_indices, val_indices, test_indices = split_data_into_dataloaders(
-#     X,
-#     y,
-#     train_size=0.7,
-#     val_size=0.1,
-# )
+  # X, y, encoder = get_mouse_brain(
+  #   'data/mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
+  #   'data/mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
+  #   log_transform=False, #scVI requires counts, so we will normalize and log transform after.
+  # )
 
-# input_size = X.shape[1]
-# unsupervised_marker_map = MarkerMap(input_size, hidden_layer_size, z_size, num_classes=None, k=k, loss_tradeoff=1)
+  scVI_X = X
 
-# if save_model:
-#   train_save_model(unsupervised_marker_map, train_dataloader, val_dataloader, save_model, 50, 600)
-# else:
-#   train_model(unsupervised_marker_map, train_dataloader, val_dataloader)
+  marker_map_adata = anndata.AnnData(X.copy())
+  sc.pp.normalize_per_cell(marker_map_adata, counts_per_cell_after=1e4)
+  sc.pp.log1p(marker_map_adata)
+  sc.pp.scale(marker_map_adata, max_value=10)
+  X = marker_map_adata.X.copy()
 
-unsupervised_marker_map = load_model(MarkerMap, save_model)
+result_options = [
+  'l2_all',
+  'l2_groups',
+  'jaccard_all',
+  'jaccard_groups',
+  'spearman_rho_all',
+  'spearman_rho_groups',
+  'spearman_p_all',
+  'spearman_p_groups',
+]
+model_options = ['marker_map', 'scVI']
+results = { 'marker_map': { z: None for z in result_options}, 'scVI': { z: None for z in result_options} }
 
-recon_X = unsupervised_marker_map.get_reconstruction(X)
+for i in range(num_times):
+  # we will use 80% training data, 20% validation data during the training of the marker map
+  train_dataloader, val_dataloader, _, train_indices, val_indices, test_indices = split_data_into_dataloaders(
+      X,
+      y,
+      train_size=0.7,
+      val_size=0.1,
+  )
+  print(train_indices)
+  y_test = y[test_indices]
+  groups = np.unique(y)
 
+  for model in model_options:
+    if model == 'marker_map':
+      model_X = X
+      X_test = model_X[test_indices, :]
 
-group_indices = np.arange(len(y))[y == 0]
-print(len(group_indices))
-runPCAAndPlotPairs(X, group_indices, recon_X, max_plots=8)
-# runDiffMapAndPlotPairs(X, 800, 10, group_indices, recon_X)
+      recon_X_test = trainAndGetReconMarkerMap(
+        hidden_layer_size,
+        z_size,
+        k,
+        train_dataloader,
+        val_dataloader,
+        X_test,
+      )
 
-# compareVariances(X, y, recon_X, encoder)
+    if model == 'scVI':
+      model_X = scVI_X
+      X_test = model_X[test_indices, :]
+      recon_X_test = trainAndGetRecon_scVI(
+        model_X[np.concatenate([train_indices, val_indices]), :],
+        X_test,
+      )
 
-# X_train, y_train, X_test, y_test = splitDiscrimDataCareful(X, recon_X)
-# X_train, y_train, X_test, y_test = splitDiscrimDataRandom(X, recon_X)
-# validateDiscriminator(X_train, y_train, X_test, y_test)
+    l2_all, l2_by_group = getL2(X_test, recon_X_test, y_test, groups)
+    jaccard_all, jaccard_index, spearman_rho_all, spearman_rho, spearman_p_all, spearman_p = analyzeVariance(
+      X_test,
+      recon_X_test,
+      y_test,
+      groups,
+      int(X_test.shape[1]*0.2),
+    )
 
-# testPCAProjectionDifference(100)
+    # this is really trash code
+    insertOrConcatenate(results, model, 'l2_all', l2_all)
+    insertOrConcatenate(results, model, 'l2_groups', l2_by_group)
+    insertOrConcatenate(results, model, 'jaccard_all', jaccard_all)
+    insertOrConcatenate(results, model, 'jaccard_groups', jaccard_index)
+    insertOrConcatenate(results, model, 'spearman_rho_all', spearman_rho_all)
+    insertOrConcatenate(results, model, 'spearman_rho_groups', spearman_rho)
+    insertOrConcatenate(results, model, 'spearman_p_all', spearman_p_all)
+    insertOrConcatenate(results, model, 'spearman_p_groups', spearman_p)
+
+  np.save(f'checkpoints/recon_{data_name}_{num_times}', results)
+
+print(results)
+

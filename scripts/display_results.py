@@ -4,13 +4,9 @@ import numpy as np
 
 from markermap.utils import plot_benchmarks
 
-def mergeFiles():
-  files = [
-    'checkpoints/benchmark_label_error_25_zeisel_1.npy',
-    'checkpoints/benchmark_label_error_25_zeisel_2.npy',
-  ]
+def mergeFiles(infiles, outfile):
   datas = []
-  for file in files:
+  for file in infiles:
     datas.append(np.load(file, allow_pickle=True).item())
 
   data_1 = datas[0]
@@ -21,9 +17,7 @@ def mergeFiles():
       for key2, arr in data_2[key1].items():
         data_1[key1][key2] = np.concatenate((data_1[key1][key2], arr))
 
-  print(data_1)
-
-  np.save('checkpoints/benchmark_label_error_50_zeisel.npy', data_1)
+  np.save(outfile, data_1)
 
 def handleArgs(argv):
   parser = argparse.ArgumentParser()
@@ -47,4 +41,9 @@ benchmark_range = [50] if lite else [10, 25, 50, 100, 250]
 
 plot_benchmarks(results, benchmark_label, benchmark_range, mode=mode, show_stdev=False, print_vals=True)
 
-# mergeFiles()
+# infiles = [
+#   'checkpoints/benchmark_label_error_25_zeisel_alpha_1.npy',
+#   'checkpoints/benchmark_label_error_25_zeisel_alpha_2.npy',
+# ]
+# outfile = 'checkpoints/benchmark_label_error_50_zeisel_alpha.npy'
+# mergeFiles(infiles, outfile)
