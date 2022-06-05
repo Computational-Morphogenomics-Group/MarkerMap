@@ -4,20 +4,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scanpy as sc
 import seaborn as sns
+import gc
 
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.decomposition import PCA
 import scipy.stats as stats
 import anndata
-
-#scVI sets the global seed to 0 on import, so we need to do this first
-#when/if we move split_into_dataloarders to use default_rng() then we don't need to worry
-seed = np.random.randint(low=1, high = 1000000)
-
-import scvi
-
-np.random.seed(seed)
 
 from markermap.utils import MarkerMap
 from markermap.utils import SmashPyWrapper
@@ -29,6 +22,14 @@ from markermap.utils import (
   split_data_into_dataloaders,
   train_model,
 )
+
+#scVI sets the global seeds on import using pytorch's seed_everything which seems to
+#reset numpy's seed everytime a model is run, which is pretty heinous
+#we need a queue to constantly be updating the seeds
+random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length=1000)
+
+import scvi
+scvi.settings.seed = random_seeds_queue.get_nowait()
 
 EMPTY_GROUP = -10000
 
@@ -114,7 +115,18 @@ def trainAndGetReconMarkerMap(hidden_layer_size, z_size, k, train_dataloader, va
     k=k,
     loss_tradeoff=1,
   )
-  train_model(unsupervised_marker_map, train_dataloader, val_dataloader, lr_explore_mode='linear', num_lr_rates=500, gpus=gpus)
+  train_model(
+    unsupervised_marker_map,
+    train_dataloader,
+    val_dataloader,
+    gpus=gpus,
+    min_epochs=25,
+    max_epochs=100,
+    max_lr=0.0001,
+    early_stopping_patience=4,
+    lr_explore_mode='linear',
+    num_lr_rates=500,
+  )
   return unsupervised_marker_map.get_reconstruction(X_test)
 
 def trainAndGetRecon_scVI(X_train, X_test):
@@ -127,6 +139,7 @@ def trainAndGetRecon_scVI(X_train, X_test):
 
   adata_test = anndata.AnnData(X_test)
   adata_test.layers['counts'] = adata_test.X.copy()
+  scvi.model.SCVI.setup_anndata(adata_test, layer='counts')
 
   return model.posterior_predictive_sample(adata_test)
 
@@ -178,13 +191,13 @@ elif data_name == 'mouse_brain':
     log_transform=False, #scVI requires counts, so we will normalize and log transform after.
   )
 
-  scVI_X = X
+  scVI_X = X.copy()
 
-  marker_map_adata = anndata.AnnData(X.copy())
+  marker_map_adata = anndata.AnnData(X)
   sc.pp.normalize_per_cell(marker_map_adata, counts_per_cell_after=1e4)
   sc.pp.log1p(marker_map_adata)
   sc.pp.scale(marker_map_adata, max_value=10)
-  X = marker_map_adata.X.copy()
+  X = marker_map_adata.X
 
 result_options = [
   'l2_all',
@@ -199,6 +212,7 @@ result_options = [
 model_options = ['marker_map', 'scVI']
 results = { 'marker_map': { z: None for z in result_options}, 'scVI': { z: None for z in result_options} }
 
+groups = np.unique(y)
 for i in range(num_times):
   # we will use 80% training data, 20% validation data during the training of the marker map
   train_dataloader, val_dataloader, _, train_indices, val_indices, test_indices = split_data_into_dataloaders(
@@ -208,11 +222,13 @@ for i in range(num_times):
       val_size=0.1,
   )
   y_test = y[test_indices]
-  groups = np.unique(y)
 
   for model in model_options:
+    # get the next seed
+    scvi.settings.seed = random_seeds_queue.get_nowait()
+
     if model == 'marker_map':
-      model_X = X
+      model_X = X.copy()
       X_test = model_X[test_indices, :]
 
       recon_X_test = trainAndGetReconMarkerMap(
@@ -226,7 +242,7 @@ for i in range(num_times):
       )
 
     if model == 'scVI':
-      model_X = scVI_X
+      model_X = scVI_X.copy()
       X_test = model_X[test_indices, :]
       recon_X_test = trainAndGetRecon_scVI(
         model_X[np.concatenate([train_indices, val_indices]), :],
@@ -251,6 +267,10 @@ for i in range(num_times):
     insertOrConcatenate(results, model, 'spearman_rho_groups', spearman_rho)
     insertOrConcatenate(results, model, 'spearman_p_all', spearman_p_all)
     insertOrConcatenate(results, model, 'spearman_p_groups', spearman_p)
+
+    del model_X
+    del recon_X_test
+    gc.collect()
 
   if (save_model):
     np.save(save_model, results)
