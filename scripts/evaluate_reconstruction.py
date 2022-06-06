@@ -1,14 +1,9 @@
 import sys
 import argparse
 import numpy as np
-import matplotlib.pyplot as plt
 import scanpy as sc
-import seaborn as sns
 import gc
 
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.neural_network import MLPClassifier
-from sklearn.decomposition import PCA
 import scipy.stats as stats
 import anndata
 
@@ -173,7 +168,6 @@ def handleArgs(argv):
 data_name, save_model, num_times, gpus, hidden_layer_size, k = handleArgs(sys.argv)
 
 z_size = 16
-plt.rcParams['font.family'] = 'STIXGeneral'
 
 if data_name == 'zeisel':
   X, y, encoder = get_zeisel('data/zeisel/Zeisel.h5ad')
