@@ -575,6 +575,7 @@ class RankCorrWrapper(Rocks, BenchmarkableModel):
             k = train_kwargs['k']
 
         if 'k' in train_kwargs:
+            train_kwargs = { **train_kwargs } #copy train_kwargs so later iterations have 'k'
             train_kwargs.pop('k')
 
         model = cls(X, y, **create_kwargs)
@@ -1386,6 +1387,15 @@ class MarkerMap(VAE_Gumbel_RunningState):
         with torch.no_grad():
             log_probs = self.predict_logprob(X)
         return log_probs.max(dim=1)[1].cpu().numpy()
+
+    def get_reconstruction(self, X):
+        assert self.loss_tradeoff != 0
+
+        X = torch.Tensor(X)
+        X.to(self.device)
+        with torch.no_grad():
+            mu_x = self.forward(X)[0].cpu().numpy()
+        return mu_x
 
 
 # NMSL is Not My Selection Layer
@@ -2318,7 +2328,7 @@ def remove_features_pct_2groups(adata, group_by=None, pct1=0.9, pct2=0.5):
     adata = adata[:, adata.var["general"]]
     return adata
 
-def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path):
+def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, log_transform=True):
     """
     Get the mouse brain data and remove outliers and perform normalization. Some of the decisions in this function are
     judgement calls, so users should inspect and make their own decisions.
@@ -2378,9 +2388,10 @@ def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path):
     gc.collect()
     adata_snrna_raw = remove_features_pct_2groups(adata_snrna_raw, group_by="annotation", pct1=0.75, pct2=0.5)
 
-    sc.pp.normalize_per_cell(adata_snrna_raw, counts_per_cell_after=1e4)
-    sc.pp.log1p(adata_snrna_raw)
-    sc.pp.scale(adata_snrna_raw, max_value=10)
+    if (log_transform):
+        sc.pp.normalize_per_cell(adata_snrna_raw, counts_per_cell_after=1e4)
+        sc.pp.log1p(adata_snrna_raw)
+        sc.pp.scale(adata_snrna_raw, max_value=10)
 
     return parse_adata(adata_snrna_raw)
 

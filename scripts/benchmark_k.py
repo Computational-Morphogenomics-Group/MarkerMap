@@ -2,6 +2,11 @@ import sys
 import argparse
 import numpy as np
 
+from sklearn.preprocessing import LabelEncoder
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
+
+
 from markermap.utils import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper
 from markermap.utils import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
 from markermap.utils import benchmark, plot_benchmarks, get_citeseq, get_mouse_brain, get_paul, get_zeisel
@@ -21,6 +26,7 @@ RANK_CORR = 'RankCorr'
 
 def handleArgs(argv):
   data_name_options = ['zeisel', 'paul', 'cite_seq', 'mouse_brain']
+  eval_model_options = ['random_forest', 'k_nearest_neighbors']
 
   parser = argparse.ArgumentParser()
   parser.add_argument('data_name', help='data set name', choices=data_name_options)
@@ -28,13 +34,24 @@ def handleArgs(argv):
   parser.add_argument('-r', '--runs', help='the number of runs', type=int, default=1)
   parser.add_argument('-g', '--gpus', help='how many gpus to use', type=int, default=None)
   parser.add_argument('--hidden_layer_size', help='how many hidden layers to use in the VAEs', type=int, default=256)
+  parser.add_argument(
+    '--eval_model',
+    help='what simple classifier to use to evaluate the models',
+    choices=eval_model_options,
+    default='random_forest',
+  )
 
   args = parser.parse_args()
 
-  return args.data_name, args.save_file, args.runs, args.gpus, args.hidden_layer_size
+  return args.data_name, args.save_file, args.runs, args.gpus, args.hidden_layer_size, args.eval_model
 
 # Main
-data_name, save_file, num_times, gpus, hidden_layer_size = handleArgs(sys.argv)
+data_name, save_file, num_times, gpus, hidden_layer_size, eval_model = handleArgs(sys.argv)
+
+if eval_model == 'random_forest':
+  eval_model = RandomForestClassifier()
+elif eval_model == 'k_nearest_neighbors':
+  eval_model = KNeighborsClassifier()
 
 z_size = 16
 
@@ -42,7 +59,7 @@ batch_size = 64
 batch_norm = True
 
 global_t = 3.0
-k=25
+k=50
 
 k_range = [10, 25, 50, 100, 250]
 label_error_range = [0.1, 0.2, 0.5, 0.75, 1]
@@ -236,6 +253,7 @@ results, benchmark_label, benchmark_range = benchmark(
   save_file=save_file,
   benchmark='k',
   benchmark_range=k_range,
+  eval_model=eval_model,
 )
 
 plot_benchmarks(results, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)
