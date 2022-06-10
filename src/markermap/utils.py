@@ -1996,15 +1996,15 @@ def plot_umap_embedding(X, y, encoder, title, path = None, markers = None, **uma
     norm = plt.Normalize(np.min(groups), np.max(groups))
 
     for group in groups:
-        plt.scatter(
+        ax.scatter(
             *embedding[group == y, :].T,
             s=10,
             color = cmap(norm(group)),
             label=encoder.inverse_transform([group])[0],
         )
 
-    plt.title(title)
-    plt.legend()
+    ax.set_title(title)
+    ax.legend()
     if path is not None:
         plt.savefig(path)
 
