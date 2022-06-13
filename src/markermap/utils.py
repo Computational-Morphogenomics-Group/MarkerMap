@@ -1823,30 +1823,6 @@ def new_model_metrics(train_x, train_y, test_x, test_y, markers = None, model = 
     misclass_rate = 1 - accuracy_score(test_y, pred_y)
     return misclass_rate, test_rep, cm
 
-
-def visualize_save_embedding(X, y, encoder, title, path, markers = None):
-    if markers is not None:
-        X = X[:, markers]
-    num_classes = len(encoder.classes_)
-    #print('embed')
-    embedding = umap.UMAP(n_neighbors=10, min_dist= 0.05).fit_transform(X)
-    
-    
-    fig, ax = plt.subplots(1, figsize=(12, 8.5))
-    
-    #print('scatter')
-    plt.scatter(*embedding.T, c = y)
-    # plt.setp(ax, xticks=[], yticks=[])
-    
-    #print('color')
-    cbar = plt.colorbar(ticks=np.arange(num_classes))#, boundaries = np.arange(num_classes) - 0.5)
-    cbar.ax.set_yticklabels(encoder.classes_)
-    
-    #print('save')
-    plt.title(title)
-    plt.savefig(path)
-    plt.close(fig)
-
 def model_variances(path, tries):
     misclass_arr = []
     weight_f1_arr = []
@@ -1993,20 +1969,44 @@ def benchmark(
 
 ### graph
 
-def graph_umap_embedding(data, labels, title, encoder):
+def plot_umap_embedding(X, y, encoder, title, path = None, markers = None, **umap_kwargs):
+    """
+    Plot the umap embedding of the data, color and label based on y
+    args:
+        X (np.array): The data that we are finding an embedding for, (n,d)
+        y (np.array): The labels of the data, (n,)
+        encoder (LabelEncoder): encoder for the labels
+        title (str): Title of the plot
+        path (str): If provided, save the figure as the file path, defaults to None
+        markers (np.array): indices of the markers, reduce X to only those markers
+        umap_kwargs (dict): dictionary of arguments you would pass to umap, like n_neighbors and min_dist. If those
+            values are not passed, they will default to 10 and 0.05 respectively.
+    """
+    if markers is not None:
+        X = X[:, markers]
     num_classes = len(encoder.classes_)
-    embedding = umap.UMAP(n_neighbors=10, min_dist= 0.05).fit_transform(data)
-    
-    
-    fig, ax = plt.subplots(1, figsize=(12, 8.5))
-    
-    plt.scatter(*embedding.T, c = encoder.transform(labels))
-    # plt.setp(ax, xticks=[], yticks=[])
-    
-    cbar = plt.colorbar(ticks=np.arange(num_classes))#, boundaries = np.arange(num_classes) - 0.5)
-    cbar.ax.set_yticklabels(encoder.classes_)
-    
-    plt.title(title)
+    umap_kwargs = { 'n_neighbors': 10, 'min_dist': 0.05, **umap_kwargs }
+
+    embedding = umap.UMAP(**umap_kwargs).fit_transform(X)
+
+    fig, ax = plt.subplots(1, figsize=(8, 8))
+
+    groups = np.unique(y)
+    cmap = plt.cm.viridis
+    norm = plt.Normalize(np.min(groups), np.max(groups))
+
+    for group in groups:
+        ax.scatter(
+            *embedding[group == y, :].T,
+            s=10,
+            color = cmap(norm(group)),
+            label=encoder.inverse_transform([group])[0],
+        )
+
+    ax.set_title(title)
+    ax.legend()
+    if path is not None:
+        plt.savefig(path)
 
 
 def plot_confusion_matrix(cm,
