@@ -116,6 +116,10 @@ def trainAndGetReconMarkerMap(hidden_layer_size, z_size, k, train_dataloader, va
     unsupervised_marker_map,
     train_dataloader,
     val_dataloader,
+    min_epochs=25,
+    max_epochs=100,
+    max_lr=0.0001,
+    early_stopping_patience=4,
     gpus=gpus,
     lr_explore_mode='linear',
     num_lr_rates=500,
@@ -167,10 +171,8 @@ data_name, save_model, num_times, gpus, hidden_layer_size, k = handleArgs(sys.ar
 
 z_size = 16
 
-if data_name == 'zeisel':
-  _, y, encoder = get_zeisel('data/zeisel/Zeisel.h5ad')
-  X = np.load('../data/zeisel/zeisel_expression_counts.npy') #this is the set used by scVI, 3005 x 558, raw counts
-  scVI_X = X.copy()
+if data_name == 'zeisel': #don't have raw counts for scVI right now
+  X, y, encoder = get_zeisel('data/zeisel/Zeisel.h5ad')
 elif data_name == 'paul':
   X, y, encoder = get_paul(
     'data/paul15/house_keeping_genes_Mouse_bone_marrow.txt',
@@ -179,13 +181,13 @@ elif data_name == 'paul':
   )
   scVI_X = X.copy()
   X = log_and_normalize(X)
-elif data_name == 'cite_seq':
+elif data_name == 'cite_seq': #dont have raw counts for scVI right now
   X, y, encoder = get_citeseq('data/cite_seq/CITEseq.h5ad')
 elif data_name == 'mouse_brain':
   X, y, encoder = get_mouse_brain(
     'data/mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
     'data/mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
-    log_transform=False, #scVI requires counts, so we will normalize and log transform after.
+    smashpy_preprocess=False, #scVI requires counts, so we will normalize and log transform after.
   )
 
   scVI_X = X.copy()
