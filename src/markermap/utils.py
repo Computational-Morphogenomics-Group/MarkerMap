@@ -1875,7 +1875,7 @@ def benchmark(
         num_times (int): number of random data splits to run the model on
         X (array): Input data
         y (vector): Output labels
-        benchmark (string): type of benchmarking to do, must be one of {'k', 'label_error'}
+        benchmark (string): type of benchmarking to do, must be one of {'k', 'label_error', 'label_error_markers_only'}
         train_size (float): 0 to 1, fraction of data for train set, defaults to 0.7
         val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
         batch_size (int): defaults to 64
@@ -1888,7 +1888,7 @@ def benchmark(
         (string): benchmark
         (array-like): benchmark_range
     """
-    benchmark_options = { 'k', 'label_error' }
+    benchmark_options = { 'k', 'label_error', 'label_error_markers_only' }
     if benchmark not in benchmark_options:
         raise Exception(f'benchmark: Possible choices of benchmark are {benchmark_options}')
 
@@ -1924,28 +1924,24 @@ def benchmark(
                         val_dataloader,
                         k=val,
                     )
-                    # TODO: incorporate test_rep, cm
-                    model_misclass, test_rep, _ = new_model_metrics(
-                        X[np.concatenate([train_indices, val_indices]), :],
-                        y[np.concatenate([train_indices, val_indices])],
-                        X_test,
-                        y_test,
-                        markers = markers,
-                        model=eval_model,
-                    )
-                elif benchmark == 'label_error':
+                    classifier_y_train = y[np.concatenate([train_indices, val_indices])]
+                elif benchmark == 'label_error' or benchmark == 'label_error_markers_only':
                     y_err = mislabel_points(y, val, np.concatenate([train_indices, val_indices]))
                     markers = model_functional(X, y_err, train_indices, val_indices, train_dataloader, val_dataloader)
 
-                    # TODO: incorporate test_rep, cm
-                    model_misclass, test_rep, _ = new_model_metrics(
-                        X[np.concatenate([train_indices, val_indices]), :],
-                        y_err[np.concatenate([train_indices, val_indices])],
-                        X_test,
-                        y_test,
-                        markers = markers,
-                        model=eval_model,
-                    )
+                    if benchmark == 'label_error':
+                        classifier_y_train = y_err[np.concatenate([train_indices, val_indices])]
+                    elif benchmark == 'label_error_markers_only':
+                        classifier_y_train = y[np.concatenate([train_indices, val_indices])]
+
+                model_misclass, test_rep, _ = new_model_metrics(
+                    X[np.concatenate([train_indices, val_indices]), :],
+                    classifier_y_train,
+                    X_test,
+                    y_test,
+                    markers = markers,
+                    model=eval_model,
+                )
 
                 misclass_results.append(model_misclass)
                 f1_results.append(test_rep['weighted avg']['f1-score'])

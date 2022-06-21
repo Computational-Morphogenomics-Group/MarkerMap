@@ -27,6 +27,7 @@ RANK_CORR = 'RankCorr'
 def handleArgs(argv):
   data_name_options = ['zeisel', 'paul', 'cite_seq', 'mouse_brain']
   eval_model_options = ['random_forest', 'k_nearest_neighbors']
+  benchmark_options = ['k', 'label_error', 'label_error_markers_only']
 
   parser = argparse.ArgumentParser()
   parser.add_argument('data_name', help='data set name', choices=data_name_options)
@@ -40,13 +41,14 @@ def handleArgs(argv):
     choices=eval_model_options,
     default='random_forest',
   )
+  parser.add_argument('-b', '--benchmark', help='what we are benchmarking over', default='k', choices=benchmark_options)
 
   args = parser.parse_args()
 
-  return args.data_name, args.save_file, args.runs, args.gpus, args.hidden_layer_size, args.eval_model
+  return args.data_name, args.save_file, args.runs, args.gpus, args.hidden_layer_size, args.eval_model, args.benchmark
 
 # Main
-data_name, save_file, num_times, gpus, hidden_layer_size, eval_model = handleArgs(sys.argv)
+data_name, save_file, num_times, gpus, hidden_layer_size, eval_model, benchmark_label = handleArgs(sys.argv)
 
 if eval_model == 'random_forest':
   eval_model = RandomForestClassifier()
@@ -61,8 +63,11 @@ batch_norm = True
 global_t = 3.0
 k=50
 
-k_range = [10, 25, 50, 100, 250]
-label_error_range = [0.1, 0.2, 0.5, 0.75, 1]
+if benchmark_label == 'k':
+  benchmark_range = [10, 25, 50, 100, 250]
+elif benchmark_label == 'label_error' or benchmark_label == 'label_error_markers_only':
+  benchmark_range = [0.1, 0.2, 0.5, 0.75, 1]
+
 max_epochs = 100
 
 #pytorch lightning stuff
@@ -85,7 +90,7 @@ elif data_name == 'mouse_brain':
 
 # The smashpy methods set global seeds that mess with sampling. These seeds are used
 # to stop those methods from using the same global seed over and over.
-random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length = len(k_range) * num_times * 5)
+random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length = len(benchmark_range) * num_times * 5)
 
 input_size = X.shape[1]
 
@@ -251,8 +256,8 @@ results, benchmark_label, benchmark_range = benchmark(
   X,
   y,
   save_file=save_file,
-  benchmark='k',
-  benchmark_range=k_range,
+  benchmark=benchmark_label,
+  benchmark_range=benchmark_range,
   eval_model=eval_model,
 )
 
