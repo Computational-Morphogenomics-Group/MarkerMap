@@ -116,11 +116,11 @@ def trainAndGetReconMarkerMap(hidden_layer_size, z_size, k, train_dataloader, va
     unsupervised_marker_map,
     train_dataloader,
     val_dataloader,
+    gpus=gpus,
     min_epochs=25,
     max_epochs=100,
     max_lr=0.0001,
     early_stopping_patience=4,
-    gpus=gpus,
     lr_explore_mode='linear',
     num_lr_rates=500,
   )
