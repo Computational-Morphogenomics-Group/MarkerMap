@@ -14,6 +14,7 @@ from markermap.utils import (
   get_mouse_brain,
   get_paul,
   get_zeisel,
+  log_and_normalize,
   split_data_into_dataloaders,
   train_model,
 )
@@ -21,6 +22,7 @@ from markermap.utils import (
 #scVI sets the global seeds on import using pytorch's seed_everything which seems to
 #reset numpy's seed everytime a model is run, which is pretty heinous
 #we need a queue to constantly be updating the seeds
+np.random.seed(1729) # for seeded runs, this should determine all the later seeds and be reproducible
 random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length=1000)
 
 import scvi
@@ -145,23 +147,6 @@ def insertOrConcatenate(results, key1, key2, val):
   else:
     results[key1][key2] = np.concatenate((results[key1][key2], val), axis=0)
 
-def logAndNormalize(X, recon_X=None):
-  """
-  Perform the log(X + 1) transform, then mean center and unit variance the ENTIRE matrix.
-  If recon_X is provided, that also gets mean centered and scaled according to the mean and std of X
-  """
-  log_X = np.log(X + np.ones(X.shape))
-
-  X_mean = np.mean(log_X)
-  X_std = np.std(log_X)
-
-  if recon_X is None:
-    return (log_X - X_mean) / X_std
-  else:
-    log_recon_X = np.log(recon_X + np.ones(recon_X.shape))
-    return ((log_X - X_mean) / X_std, (log_recon_X - X_mean) / X_std)
-
-
 def handleArgs(argv):
   data_name_options = ['zeisel', 'paul', 'cite_seq', 'mouse_brain']
 
@@ -190,19 +175,21 @@ elif data_name == 'paul':
   X, y, encoder = get_paul(
     'data/paul15/house_keeping_genes_Mouse_bone_marrow.txt',
     'data/paul15/house_keeping_genes_Mouse_HSC.txt',
+    smashpy_preprocess=False,
   )
+  scVI_X = X.copy()
+  X = log_and_normalize(X)
 elif data_name == 'cite_seq':
   X, y, encoder = get_citeseq('data/cite_seq/CITEseq.h5ad')
 elif data_name == 'mouse_brain':
-  # X, y, encoder = get_mouse_brain(
-  #   'data/mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
-  #   'data/mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
-  #   log_transform=False, #scVI requires counts, so we will normalize and log transform after.
-  # )
-  X, y, encoder = parse_adata(sc.read_h5ad('checkpoints/mouse_brain_adata_pp_2.h5ad'))
+  X, y, encoder = get_mouse_brain(
+    'data/mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
+    'data/mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
+    log_transform=False, #scVI requires counts, so we will normalize and log transform after.
+  )
 
   scVI_X = X.copy()
-  X = logAndNormalize(X)
+  X = log_and_normalize(X)
 
 result_options = [
   'l2_all',
@@ -245,7 +232,7 @@ for i in range(num_times):
         X_test,
         gpus,
       )
-      l2_all, l2_by_group = getL2(log_X_test, log_recon_X_test, y_test, groups)
+      l2_all, l2_by_group = getL2(X_test, recon_X_test, y_test, groups)
 
     if model == 'scVI':
       model_X = scVI_X.copy()
@@ -254,7 +241,7 @@ for i in range(num_times):
         model_X[np.concatenate([train_indices, val_indices]), :],
         X_test,
       )
-      log_X_test, log_recon_X_test = logAndNormalize(X_test, recon_X_test)
+      log_X_test, log_recon_X_test = log_and_normalize(X_test, recon_X_test)
       l2_all, l2_by_group = getL2(log_X_test, log_recon_X_test, y_test, groups)
 
     jaccard_all, jaccard_index, spearman_rho_all, spearman_rho, spearman_p_all, spearman_p = analyzeVariance(

@@ -2227,7 +2227,23 @@ def get_zeisel(file_path):
 
     return parse_adata(adata)
 
-def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path):
+def log_and_normalize(X, recon_X=None):
+  """
+  Perform the log(X + 1) transform, then mean center and unit variance the ENTIRE matrix.
+  If recon_X is provided, that also gets mean centered and scaled according to the mean and std of X
+  """
+  log_X = np.log(X + np.ones(X.shape))
+
+  X_mean = np.mean(log_X)
+  X_std = np.std(log_X)
+
+  if recon_X is None:
+    return (log_X - X_mean) / X_std
+  else:
+    log_recon_X = np.log(recon_X + np.ones(recon_X.shape))
+    return ((log_X - X_mean) / X_std, (log_recon_X - X_mean) / X_std)
+
+def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path, smashpy_preprocess=True):
     """
     Get the paul data from scanpy and remove the housekeeping genes from the two provided files
     args:
@@ -2237,7 +2253,15 @@ def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path):
     """
     adata = sc.datasets.paul15()
     sm = SmashPyWrapper()
-    sm.data_preparation(adata)
+    if (smashpy_preprocess):
+        sm.data_preparation(adata)
+    else:
+        # these layers are set in data_preparation and used in remove_general_genes and remove_housekeepingenes
+        adata.layers['counts'] = adata.X
+        adata.layers['norm'] = adata.X
+        adata.layers['log'] = adata.X
+        adata.layers['scale'] = adata.X
+
     adata = sm.remove_general_genes(adata)
     adata = sm.remove_housekeepingenes(adata, path=[housekeeping_bone_marrow_path])
     adata = sm.remove_housekeepingenes(adata, path=[house_keeping_HSC_path])
