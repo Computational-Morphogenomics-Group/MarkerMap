@@ -48,7 +48,7 @@ def handleArgs(argv):
   return args.data_name, args.save_file, args.runs, args.gpus, args.hidden_layer_size, args.eval_model, args.benchmark
 
 # Main
-data_name, save_file, num_times, gpus, hidden_layer_size, eval_model, benchmark_label = handleArgs(sys.argv)
+data_name, save_file, num_times, gpus, hidden_layer_size, eval_model, benchmark_mode = handleArgs(sys.argv)
 
 if eval_model == 'random_forest':
   eval_model = RandomForestClassifier()
@@ -63,9 +63,9 @@ batch_norm = True
 global_t = 3.0
 k=50
 
-if benchmark_label == 'k':
+if benchmark_mode == 'k':
   benchmark_range = [10, 25, 50, 100, 250]
-elif benchmark_label == 'label_error' or benchmark_label == 'label_error_markers_only':
+elif benchmark_mode == 'label_error' or benchmark_mode == 'label_error_markers_only':
   benchmark_range = [0.1, 0.2, 0.5, 0.75, 1]
 
 max_epochs = 100
@@ -238,7 +238,7 @@ l1_vae = VAE_l1_diag.getBenchmarker(
   },
 )
 
-results, benchmark_label, benchmark_range = benchmark(
+results, benchmark_mode, benchmark_range = benchmark(
   {
     UNSUP_MM: unsupervised_mm,
     SUP_MM: supervised_mm,
@@ -256,9 +256,9 @@ results, benchmark_label, benchmark_range = benchmark(
   X,
   y,
   save_file=save_file,
-  benchmark=benchmark_label,
+  benchmark=benchmark_mode,
   benchmark_range=benchmark_range,
   eval_model=eval_model,
 )
 
-plot_benchmarks(results, benchmark_label, benchmark_range, mode='accuracy', show_stdev=True)
+plot_benchmarks(results, benchmark_mode, benchmark_range, mode='accuracy', show_stdev=True)
