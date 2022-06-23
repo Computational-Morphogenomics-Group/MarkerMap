@@ -1927,7 +1927,27 @@ def benchmark(
                     classifier_y_train = y[np.concatenate([train_indices, val_indices])]
                 elif benchmark == 'label_error' or benchmark == 'label_error_markers_only':
                     y_err = mislabel_points(y, val, np.concatenate([train_indices, val_indices]))
-                    markers = model_functional(X, y_err, train_indices, val_indices, train_dataloader, val_dataloader)
+                    train_err_dataloader = get_dataloader(
+                        X[train_indices, :],
+                        y_err[train_indices],
+                        batch_size=batch_size,
+                        shuffle=True,
+                    )
+                    val_err_dataloader = get_dataloader(
+                        X[val_indices, :],
+                        y_err[val_indices],
+                        batch_size=batch_size,
+                        shuffle=False,
+                    )
+
+                    markers = model_functional(
+                        X,
+                        y_err,
+                        train_indices,
+                        val_indices,
+                        train_err_dataloader,
+                        val_err_dataloader,
+                    )
 
                     if benchmark == 'label_error':
                         classifier_y_train = y_err[np.concatenate([train_indices, val_indices])]
@@ -2391,6 +2411,14 @@ def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, log_transform=Tru
 
     return parse_adata(adata_snrna_raw)
 
+def get_dataloader(X, y, batch_size, shuffle, num_workers=0):
+    return DataLoader(
+        torch.utils.data.TensorDataset(torch.Tensor(X), torch.LongTensor(y)),
+        batch_size=batch_size,
+        shuffle = shuffle,
+        num_workers = num_workers,
+    )
+
 def split_data_into_dataloaders_no_test(X, Y, train_size, batch_size = 64, num_workers = 0, seed = None):
     """
     Split X and Y into training set (fraction train_size) and the rest into a validation
@@ -2428,14 +2456,12 @@ def split_data_into_dataloaders_no_test(X, Y, train_size, batch_size = 64, num_w
     if Y is not None:
         train_y = Y[train_indices]
         val_y = Y[val_indices]
-        train_y = torch.LongTensor(train_y)
-        val_y = torch.LongTensor(val_y)
-        train_dataloader = DataLoader(torch.utils.data.TensorDataset(train_x, train_y), batch_size=batch_size, shuffle = True, num_workers = num_workers)
-        val_dataloader = DataLoader(torch.utils.data.TensorDataset(val_x, val_y), batch_size=batch_size, shuffle = False, num_workers = num_workers)
+        train_dataloader = get_dataloader(train_x, train_y, batch_size, shuffle=True, num_workers=num_workers)
+        val_dataloader = get_dataloader(val_x, val_y, batch_size, shuffle=False, num_workers=num_workers)
     else:
         # X = Y in unsupervised
-        train_dataloader = DataLoader(torch.utils.data.TensorDataset(train_x, train_x), batch_size=batch_size, shuffle = True, num_workers = num_workers)
-        val_dataloader = DataLoader(torch.utils.data.TensorDataset(val_x, val_x), batch_size=batch_size, shuffle = False, num_workers = num_workers)
+        train_dataloader = get_dataloader(train_x, train_x, batch_size, shuffle=True, num_workers=num_workers)
+        val_dataloader = get_dataloader(val_x, val_x, batch_size, shuffle=False, num_workers=num_workers)
         
         
     if train_size == 1:
@@ -2483,17 +2509,9 @@ def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, num
     val_y = y[val_indices]
     test_y = y[test_indices]
 
-    train_x = torch.Tensor(train_x)
-    val_x = torch.Tensor(val_x)
-    test_x = torch.Tensor(test_x)
-
-    train_y = torch.LongTensor(train_y)
-    val_y = torch.LongTensor(val_y)
-    test_y = torch.LongTensor(test_y)
-
-    train_dataloader = DataLoader(torch.utils.data.TensorDataset(train_x, train_y), batch_size=batch_size, shuffle = True, num_workers = num_workers)
-    val_dataloader = DataLoader(torch.utils.data.TensorDataset(val_x, val_y), batch_size=batch_size, shuffle = False, num_workers = num_workers)
-    test_dataloader = DataLoader(torch.utils.data.TensorDataset(test_x, test_y), batch_size=batch_size, shuffle = False, num_workers = num_workers)
+    train_dataloader = get_dataloader(train_x, train_y, batch_size, shuffle=True, num_workers=num_workers)
+    val_dataloader = get_dataloader(val_x, val_y, batch_size, shuffle=False, num_workers=num_workers)
+    test_dataloader = get_dataloader(test_x, test_y, batch_size, shuffle=False, num_workers=num_workers)
 
     return train_dataloader, val_dataloader, test_dataloader, train_indices, val_indices, test_indices
 
