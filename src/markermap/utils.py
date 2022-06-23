@@ -578,7 +578,8 @@ class RankCorrWrapper(Rocks, BenchmarkableModel):
             train_kwargs = { **train_kwargs } #copy train_kwargs so later iterations have 'k'
             train_kwargs.pop('k')
 
-        model = cls(X, y, **create_kwargs)
+        X_train, y_train, _, _ = cls.prepareData(X, y, np.concatenate([train_indices, val_indices]), [])
+        model = cls(X_train, y_train, **create_kwargs)
         markers = model.CSrankMarkers(**train_kwargs)
 
         if len(markers) < k:
