@@ -1,13 +1,12 @@
 import numpy as np
 import scanpy as sc
 
-from markermap.utils import MarkerMap
+from markermap.vae_models import MarkerMap, train_model
 from markermap.utils import (
     new_model_metrics,
     parse_adata,
     plot_confusion_matrix,
     split_data_into_dataloaders,
-    train_model,
 )
 
 # Set parameters

@@ -7,8 +7,8 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
 
 
-from markermap.utils import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper
-from markermap.utils import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
+from markermap.other_models import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper
+from markermap.vae_models import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
 from markermap.utils import benchmark, plot_benchmarks, get_citeseq, get_mouse_brain, get_paul, get_zeisel
 
 #Consts
