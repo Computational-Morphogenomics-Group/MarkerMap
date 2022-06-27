@@ -14,6 +14,7 @@ from markermap.utils import (
   get_mouse_brain,
   get_paul,
   get_zeisel,
+  log_and_normalize,
   split_data_into_dataloaders,
   train_model,
 )
@@ -21,6 +22,7 @@ from markermap.utils import (
 #scVI sets the global seeds on import using pytorch's seed_everything which seems to
 #reset numpy's seed everytime a model is run, which is pretty heinous
 #we need a queue to constantly be updating the seeds
+np.random.seed(1729) # for seeded runs, this should determine all the later seeds and be reproducible
 random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length=1000)
 
 import scvi
@@ -169,29 +171,27 @@ data_name, save_model, num_times, gpus, hidden_layer_size, k = handleArgs(sys.ar
 
 z_size = 16
 
-if data_name == 'zeisel':
+if data_name == 'zeisel': #don't have raw counts for scVI right now
   X, y, encoder = get_zeisel('data/zeisel/Zeisel.h5ad')
 elif data_name == 'paul':
   X, y, encoder = get_paul(
     'data/paul15/house_keeping_genes_Mouse_bone_marrow.txt',
     'data/paul15/house_keeping_genes_Mouse_HSC.txt',
+    smashpy_preprocess=False,
   )
-elif data_name == 'cite_seq':
+  scVI_X = X.copy()
+  X = log_and_normalize(X)
+elif data_name == 'cite_seq': #dont have raw counts for scVI right now
   X, y, encoder = get_citeseq('data/cite_seq/CITEseq.h5ad')
 elif data_name == 'mouse_brain':
   X, y, encoder = get_mouse_brain(
     'data/mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
     'data/mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
-    log_transform=False, #scVI requires counts, so we will normalize and log transform after.
+    smashpy_preprocess=False, #scVI requires counts, so we will normalize and log transform after.
   )
 
   scVI_X = X.copy()
-
-  marker_map_adata = anndata.AnnData(X)
-  sc.pp.normalize_per_cell(marker_map_adata, counts_per_cell_after=1e4)
-  sc.pp.log1p(marker_map_adata)
-  sc.pp.scale(marker_map_adata, max_value=10)
-  X = marker_map_adata.X
+  X = log_and_normalize(X)
 
 result_options = [
   'l2_all',
@@ -234,6 +234,7 @@ for i in range(num_times):
         X_test,
         gpus,
       )
+      l2_all, l2_by_group = getL2(X_test, recon_X_test, y_test, groups)
 
     if model == 'scVI':
       model_X = scVI_X.copy()
@@ -242,8 +243,9 @@ for i in range(num_times):
         model_X[np.concatenate([train_indices, val_indices]), :],
         X_test,
       )
+      log_X_test, log_recon_X_test = log_and_normalize(X_test, recon_X_test)
+      l2_all, l2_by_group = getL2(log_X_test, log_recon_X_test, y_test, groups)
 
-    l2_all, l2_by_group = getL2(X_test, recon_X_test, y_test, groups)
     jaccard_all, jaccard_index, spearman_rho_all, spearman_rho, spearman_p_all, spearman_p = analyzeVariance(
       X_test,
       recon_X_test,
