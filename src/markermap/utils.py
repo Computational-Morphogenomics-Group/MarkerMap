@@ -1986,9 +1986,9 @@ def benchmark(
 
 ### graph
 
-def plot_umap_embedding(X, y, encoder, title, path = None, markers = None, **umap_kwargs):
+def plot_umap_embedding(X, y, encoder, title, path = None, markers = None, close_fig = False, **umap_kwargs):
     """
-    Plot the umap embedding of the data, color and label based on y
+    Plot the umap embedding of the data, color and label based on y. Call matplotlib.pylot.show() after to display plot.
     args:
         X (np.array): The data that we are finding an embedding for, (n,d)
         y (np.array): The labels of the data, (n,)
@@ -1996,6 +1996,7 @@ def plot_umap_embedding(X, y, encoder, title, path = None, markers = None, **uma
         title (str): Title of the plot
         path (str): If provided, save the figure as the file path, defaults to None
         markers (np.array): indices of the markers, reduce X to only those markers
+        close_fig (bool): Whether the figure should be closed, useful in Jupyter Notebooks, defaults to False
         umap_kwargs (dict): dictionary of arguments you would pass to umap, like n_neighbors and min_dist. If those
             values are not passed, they will default to 10 and 0.05 respectively.
     """
@@ -2024,6 +2025,9 @@ def plot_umap_embedding(X, y, encoder, title, path = None, markers = None, **uma
     ax.legend()
     if path is not None:
         plt.savefig(path)
+
+    if close_fig:
+        plt.close(fig)
 
 
 def plot_confusion_matrix(cm,
