@@ -1,5 +1,3 @@
-from pathlib import Path
-import sys
 import os
 import contextlib
 import queue
@@ -12,8 +10,7 @@ import anndata
 
 from lassonet import LassoNetClassifier
 from smashpy import smashpy
-sys.path.append(str(Path(__file__).parent) + '/../RankCorr')
-from rocks import Rocks
+from RankCorr.rocks import Rocks
 
 
 class BenchmarkableModel():

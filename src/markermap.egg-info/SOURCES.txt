@@ -2,9 +2,15 @@ LICENSE
 README.md
 pyproject.toml
 setup.cfg
+src/RankCorr/__init__.py
+src/RankCorr/performance.py
+src/RankCorr/rocks.py
 src/markermap/__init__.py
+src/markermap/other_models.py
 src/markermap/utils.py
+src/markermap/vae_models.py
 src/markermap.egg-info/PKG-INFO
 src/markermap.egg-info/SOURCES.txt
 src/markermap.egg-info/dependency_links.txt
+src/markermap.egg-info/requires.txt
 src/markermap.egg-info/top_level.txt
