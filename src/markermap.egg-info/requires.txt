@@ -5,6 +5,6 @@ pandas
 pytorch-lightning
 scanpy
 seaborn
-smashpy
+smashpy>=0.1.2
 torch
 umap-learn
