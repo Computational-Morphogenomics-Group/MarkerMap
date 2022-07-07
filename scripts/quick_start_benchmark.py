@@ -1,8 +1,8 @@
 import numpy as np
 import scanpy as sc
 
-from markermap.utils import RandomBaseline
-from markermap.utils import MarkerMap
+from markermap.other_models import RandomBaseline
+from markermap.vae_models import MarkerMap
 from markermap.utils import benchmark, parse_adata, plot_benchmarks
 
 # Set parameters

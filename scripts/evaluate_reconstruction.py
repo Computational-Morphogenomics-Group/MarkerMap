@@ -7,8 +7,8 @@ import gc
 import scipy.stats as stats
 import anndata
 
-from markermap.utils import MarkerMap
-from markermap.utils import SmashPyWrapper
+from markermap.vae_models import MarkerMap, train_model
+from markermap.other_models import SmashPyWrapper
 from markermap.utils import (
   get_citeseq,
   get_mouse_brain,
@@ -16,7 +16,6 @@ from markermap.utils import (
   get_zeisel,
   log_and_normalize,
   split_data_into_dataloaders,
-  train_model,
 )
 
 #scVI sets the global seeds on import using pytorch's seed_everything which seems to
