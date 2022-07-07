@@ -12,7 +12,7 @@ import anndata
 
 from lassonet import LassoNetClassifier
 from smashpy import smashpy
-sys.path.append(str(Path(__file__).parent) + '/../../RankCorr/picturedRocks')
+sys.path.append(str(Path(__file__).parent) + '/../RankCorr')
 from rocks import Rocks
 
 
