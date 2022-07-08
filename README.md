@@ -11,15 +11,16 @@ MarkerMap is a generative model for selecting the most informative gene markers 
 	2. [Benchmark Example](#benchmark-example)
 3. [Features](#features)
 4. [For Developers](#for-developers)
+  1. [Adding Your Model](#adding-your-model)
 5. [License](#license)
 
 ## Installation
 
 ### MacOS
-- Clone the repository `git clone https://github.com/Computational-Morphogenomics-Group/MarkerMap.git`
-- Navigate to the MarkerMap directory `cd MarkerMap`
-- Locally install the package `pip install -e .` (may have to use pip3 if your system has both python2 and python3 installed)
-- You might have to install libomp with homebrew, `brew install libomp`
+- The easiest way to install is with pip from https://pypi.org/project/markermap/
+- Simply do `pip install markermap`
+- Note: If using on Google Colab, you may have to restart the runtime after installing because `scanpy` installs a newer version of matplotlib than the default one.
+- Note: Currently Smashpy specifies an older version of tensorflow (==2.5.0), so this creates a few funky package disagreements. So far this does not seem to cause any problems.
 
 ### Windows
 - Coming soon!
@@ -193,9 +194,20 @@ plot_benchmarks(results, benchmark_label, benchmark_range, mode='accuracy')
 
 ## For Developers <a name="for-developers"/>
 
+- You will want to set up this library as an editable install.
+  - Clone the repository `git clone https://github.com/Computational-Morphogenomics-Group/MarkerMap.git`
+  - Navigate to the MarkerMap directory `cd MarkerMap`
+  - Locally install the package `pip install -e .` (may have to use pip3 if your system has both python2 and python3 installed)
 - If you are going to be developing this package, also install the following: `pip install pre-commit pytest`
 - In the root directory, run `pre-commit install`. You should see a line like `pre-commit installed at .git/hooks/pre-commit`. Now when you commit to your local branch, it will run `jupyter nbconvert --clean-output` on all the local jupyter notebooks on that branch. This ensures that only clean notebooks are uploaded to the github.
 - To run tests, simply run pytest: `pytest`.
+
+### Adding Your Model <a name="adding-your-model"/>
+- The MarkerMap project is built to allow for easy comparison between different types of marker selection algorithms. If you would like to benchmark your method against the others, the process is straightforward:
+  - Suppose your method is called Acme. Create a class `AcmeWrapper` in other_models.py that extends Acme and `BenchmarkableModel` from other_models.py.
+  - In `AcmeWrapper`, implement `benchmarkerFunctional`, check out the other methods in that function for a full list of arguments. The most important two are `create_kwargs` and `train_kwargs` which are dictionaries of arguments. The `create_kwargs` is arguments that when be called when initializes the class, i.e. `Acme(**train_kwargs)`, and the `train_kwargs` are arguments that would be called when training the model. The `benchmarkerFunctional` method should return an array of the indices of the markers.
+  - Voila! Now you can define the model with `AcmeWrapper.getBenchmarker(create_kwargs, train_kwargs)`. This will return a model functional that you pass to the `benchmark` function. See quick_start_benchmark.py for an example.
+- If you would like to add your super duper model to the repository, create a branch and submit a Pull Request.
 
 ## License
 - This project is licensed under the terms of the MIT License.
