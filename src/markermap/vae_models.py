@@ -9,8 +9,10 @@ from torch.nn import functional as F
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from sklearn.ensemble import RandomForestClassifier
 
 from markermap.other_models import BenchmarkableModel
+from markermap.utils import split_data_into_dataloaders_no_test
 
 
 # rounding up lowest float32 on my system
@@ -1241,9 +1243,14 @@ def train_model(model, train_dataloader, val_dataloader, gpus = None, tpu_cores 
         for logger in pl_loggers:
             logger.setLevel(logging.ERROR)
 
-    early_stopping_callback = EarlyStopping(monitor='val_loss', mode = 'min', patience = early_stopping_patience)
+    if (val_dataloader is None or len(val_dataloader) == 0):
+        callbacks = None #val_loss early stopping breaks when there is no validation set
+    else:
+        early_stopping_callback = EarlyStopping(monitor='val_loss', mode = 'min', patience = early_stopping_patience)
+        callbacks = [early_stopping_callback]
+
     trainer = pl.Trainer(gpus = gpus, tpu_cores = tpu_cores, min_epochs = min_epochs, max_epochs = max_epochs,
-            auto_lr_find=auto_lr, callbacks=[early_stopping_callback], precision = precision, logger = verbose,
+            auto_lr_find=auto_lr, callbacks=callbacks, precision = precision, logger = verbose,
             # turn off some summaries
             enable_model_summary=verbose, enable_progress_bar = verbose, enable_checkpointing=False)
     if auto_lr:
