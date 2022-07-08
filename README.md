@@ -11,7 +11,7 @@ MarkerMap is a generative model for selecting the most informative gene markers 
 	2. [Benchmark Example](#benchmark-example)
 3. [Features](#features)
 4. [For Developers](#for-developers)
-  1. [Adding Your Model](#adding-your-model)
+	1. [Adding Your Model](#adding-your-model)
 5. [License](#license)
 
 ## Installation
