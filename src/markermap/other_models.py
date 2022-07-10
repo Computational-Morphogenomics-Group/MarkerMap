@@ -7,6 +7,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import anndata
+import torch
 
 from lassonet import LassoNetClassifier
 from smashpy import smashpy

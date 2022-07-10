@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: markermap
-Version: 1.0.1
+Version: 1.0.2
 Summary: Marker selection library for single-cell RNA-seq data
 Home-page: https://github.com/Computational-Morphogenomics-Group/MarkerMap
 Author: Wilson Gregory, Nabeel Sarwar
