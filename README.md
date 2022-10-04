@@ -1,5 +1,9 @@
 # MarkerMap
 
+<p align="left">
+  <img src="marker_map.png" width="200" title="logo">
+</p>
+
 MarkerMap is a generative model for selecting the most informative gene markers by projecting cells into a shared, interpretable embedding without sacrificing accuracy.
 
 ## Table of Contents
