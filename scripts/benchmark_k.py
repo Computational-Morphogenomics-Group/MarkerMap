@@ -7,7 +7,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
 
 
-from markermap.other_models import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper
+from markermap.other_models import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper, ScanpyRankGenes, COSGWrapper
 from markermap.vae_models import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
 from markermap.utils import benchmark, plot_benchmarks, get_citeseq, get_mouse_brain, get_paul, get_zeisel
 
@@ -23,6 +23,8 @@ MIXED_MM = 'Mixed Marker Map'
 CONCRETE_VAE = 'Concrete VAE'
 LASSONET = 'LassoNet'
 RANK_CORR = 'RankCorr'
+SCANPY = 'Scanpy Rank Genes'
+COSG = 'COSG'
 
 def handleArgs(argv):
   data_name_options = ['zeisel', 'paul', 'cite_seq', 'mouse_brain']
@@ -42,13 +44,23 @@ def handleArgs(argv):
     default='random_forest',
   )
   parser.add_argument('-b', '--benchmark', help='what we are benchmarking over', default='k', choices=benchmark_options)
+  parser.add_argument('--data_dir', help='directory where the input data is located', type=str, default='data/')
 
   args = parser.parse_args()
 
-  return args.data_name, args.save_file, args.runs, args.gpus, args.hidden_layer_size, args.eval_model, args.benchmark
+  return (
+    args.data_name, 
+    args.save_file, 
+    args.runs, 
+    args.gpus, 
+    args.hidden_layer_size, 
+    args.eval_model, 
+    args.benchmark,
+    args.data_dir,
+  )
 
 # Main
-data_name, save_file, num_times, gpus, hidden_layer_size, eval_model, benchmark_mode = handleArgs(sys.argv)
+data_name, save_file, num_times, gpus, hidden_layer_size, eval_model, benchmark_mode, data_dir = handleArgs(sys.argv)
 
 if eval_model == 'random_forest':
   eval_model = RandomForestClassifier()
@@ -74,19 +86,21 @@ max_epochs = 100
 precision=32
 
 if data_name == 'zeisel':
-  X, y, encoder = get_zeisel('data/zeisel/Zeisel.h5ad')
+  X, y, encoder = get_zeisel(data_dir + 'zeisel/Zeisel.h5ad')
 elif data_name == 'paul':
   X, y, encoder = get_paul(
-    'data/paul15/house_keeping_genes_Mouse_bone_marrow.txt',
-    'data/paul15/house_keeping_genes_Mouse_HSC.txt',
+    data_dir + 'paul15/house_keeping_genes_Mouse_bone_marrow.txt',
+    data_dir + 'paul15/house_keeping_genes_Mouse_HSC.txt',
   )
 elif data_name == 'cite_seq':
-  X, y, encoder = get_citeseq('data/cite_seq/CITEseq.h5ad')
+  X, y, encoder = get_citeseq(data_dir + 'cite_seq/CITEseq.h5ad')
 elif data_name == 'mouse_brain':
   X, y, encoder = get_mouse_brain(
-    'data/mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
-    'data/mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
+    data_dir + 'mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
+    data_dir + 'mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
   )
+
+num_classes = len(np.unique(y))
 
 # The smashpy methods set global seeds that mess with sampling. These seeds are used
 # to stop those methods from using the same global seed over and over.
@@ -124,7 +138,7 @@ supervised_mm = MarkerMap.getBenchmarker(
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
-    'num_classes': len(np.unique(y)),
+    'num_classes': num_classes,
     'k': k,
     't': global_t,
     'batch_norm': batch_norm,
@@ -147,7 +161,7 @@ mixed_mm = MarkerMap.getBenchmarker(
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
-    'num_classes': len(np.unique(y)),
+    'num_classes': num_classes,
     'k': k,
     't': global_t,
     'batch_norm': batch_norm,
@@ -248,9 +262,15 @@ results, benchmark_mode, benchmark_range = benchmark(
     CONCRETE_VAE: concrete_vae,
     GLOBAL_GATE: global_gate,
     SMASH_RF: smash_rf,
-    SMASH_DNN: smash_dnn,
-    L1_VAE: l1_vae,
+    # SMASH_DNN: smash_dnn,
+    # L1_VAE: l1_vae,
     RANK_CORR: RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),
+    SCANPY: ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
+    # SCANPY + ' overestim_var': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 't-test_overestim_var' }),
+    # SCANPY + ' wilcoxon': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon' }),
+    # SCANPY + ' wilcoxon tie': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
+    # SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
+    COSG: COSGWrapper.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
   },
   num_times,
   X,
@@ -261,4 +281,4 @@ results, benchmark_mode, benchmark_range = benchmark(
   eval_model=eval_model,
 )
 
-plot_benchmarks(results, benchmark_mode, benchmark_range, mode='accuracy', show_stdev=True)
+plot_benchmarks(results, benchmark_mode, benchmark_range, mode='accuracy', show_stdev=True, print_vals=True)
