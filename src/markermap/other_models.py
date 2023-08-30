@@ -383,10 +383,8 @@ class ScanpyRankGenes(AnnDataModel):
             (np.array) the selected k markers
         """
         group_by = 'annotation'
-        if 'method' not in train_kwargs:
-            train_kwargs['method'] = 't-test' #default of rank_genes_groups
-        if 'tie_correct' not in train_kwargs:
-            train_kwargs['tie_correct'] = False
+        method = train_kwargs['method'] if 'method' in train_kwargs else 't-test'
+        tie_correct = train_kwargs['tie_correct'] if 'tie_correct' in train_kwargs else False
 
         if k is None:
             k = train_kwargs['k']
@@ -403,8 +401,8 @@ class ScanpyRankGenes(AnnDataModel):
                 adata, 
                 group_by, 
                 n_genes=n_genes, 
-                method=train_kwargs['method'],
-                tie_correct=train_kwargs['tie_correct'],
+                method=method,
+                tie_correct=tie_correct,
                 copy=True,
             )
             names = np.array(list(it.chain(*adata_with_markers.uns['rank_genes_groups']['names'])), dtype=int)
@@ -466,10 +464,6 @@ class COSGWrapper(AnnDataModel):
             (np.array) the selected k markers
         """
         group_by = 'annotation'
-        if 'method' not in train_kwargs:
-            train_kwargs['method'] = 't-test' #default of rank_genes_groups
-        if 'tie_correct' not in train_kwargs:
-            train_kwargs['tie_correct'] = False
 
         if k is None:
             k = train_kwargs['k']
