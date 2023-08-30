@@ -5,13 +5,16 @@ from functools import partial
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import itertools as it
 
 import anndata
 import torch
+import scanpy as sc
 
 from lassonet import LassoNetClassifier
 from smashpy import smashpy
 from RankCorr.rocks import Rocks
+import cosg
 
 
 class BenchmarkableModel():
@@ -117,7 +120,90 @@ class LassoNetWrapper(LassoNetClassifier, BenchmarkableModel):
         return torch.argsort(model.feature_importances_, descending = True).cpu().numpy()[:k]
 
 
-class SmashPyWrapper(smashpy, BenchmarkableModel):
+class RankCorrWrapper(Rocks, BenchmarkableModel):
+    """
+    Thin wrapper on the RankCorr package Rocks class that also implements the Benchmarkable Model functionality
+    """
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X,
+        y,
+        train_indices,
+        val_indices,
+        train_dataloader,
+        val_dataloader,
+        k=None,
+    ):
+        """
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
+        """
+        if not k:
+            k = train_kwargs['k']
+
+        if 'k' in train_kwargs:
+            train_kwargs = { **train_kwargs } #copy train_kwargs so later iterations have 'k'
+            train_kwargs.pop('k')
+
+        X_train, y_train, _, _ = cls.prepareData(X, y, np.concatenate([train_indices, val_indices]), [])
+        model = cls(X_train, y_train, **create_kwargs)
+        markers = model.CSrankMarkers(**train_kwargs)
+
+        if len(markers) < k:
+            print(
+                f'RankCorrWrapper::benchmarkerFunctional: Tried to find {k} markers, only found {len(markers)},'
+                ' increase lamb parameter in train_kwargs.',
+            )
+        if len(markers) > k:
+            markers = markers[:k]
+
+        return markers
+
+
+# Below this are AnnDataModel and models that inherit from AnnDataModel
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+class AnnDataModel(BenchmarkableModel):
+    """
+    BenchmarkableModel that expect the data as an AnnData object. 
+    """
+
+    def prepareData(X, y, train_indices, val_indices, group_by):
+        """
+        Since SmashPy requires data structured as AnnData, recreate it from X and y
+        args:
+            X (np.array): input data, counts of various proteins
+            y (np.array): output data, what type of cell it is
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            group_by (string): the obs ouput the smashpy looks to
+        """
+        train_val_indices = np.concatenate([train_indices, val_indices])
+
+        # this line will emit a warning, "Transforming to str index" from AnnData, I am having trouble making it
+        # go away. See: https://github.com/theislab/anndata/issues/311
+        aData = anndata.AnnData(X=pd.DataFrame(X).iloc[train_val_indices, :])
+        y_series = pd.Series(y, dtype='string').astype('category').iloc[train_val_indices]
+        # some index hackery is required here to get the index types to match
+        y_series.index = y_series.index.astype('string').astype('object')
+
+        aData.obs[group_by] = y_series
+        return aData
+
+class SmashPyWrapper(smashpy, AnnDataModel):
     """
     Thin wrapper on SmashPy that implements the BenchmarkableModel functionality, as well as fixes a few issues
     with SmashPy
@@ -155,28 +241,6 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
             # put plots in interactive mode so that they do not block execution
             with plt.ion():
                 return super().run_shap(*args, **kwargs)
-
-    def prepareData(X, y, train_indices, val_indices, group_by):
-        """
-        Since SmashPy requires data structured as AnnData, recreate it from X and y
-        args:
-            X (np.array): input data, counts of various proteins
-            y (np.array): output data, what type of cell it is
-            train_indices (array-like): the indices to be used as the training set
-            val_indices (array-like): the indices to be used as the validation set
-            group_by (string): the obs ouput the smashpy looks to
-        """
-        train_val_indices = np.concatenate([train_indices, val_indices])
-
-        # this line will emit a warning, "Transforming to str index" from AnnData, I am having trouble making it
-        # go away. See: https://github.com/theislab/anndata/issues/311
-        aData = anndata.AnnData(X=pd.DataFrame(X).iloc[train_val_indices, :])
-        y_series = pd.Series(y, dtype='string').astype('category').iloc[train_val_indices]
-        # some index hackery is required here to get the index types to match
-        y_series.index = y_series.index.astype('string').astype('object')
-
-        aData.obs[group_by] = y_series
-        return aData
 
     def getRandomSeedsQueue(length = 400):
         """
@@ -286,10 +350,8 @@ class SmashPyWrapper(smashpy, BenchmarkableModel):
 
         return create_kwargs['adata'].var.index.get_indexer(selectedGenes)
 
-class RankCorrWrapper(Rocks, BenchmarkableModel):
-    """
-    Thin wrapper on the RankCorr package Rocks class that also implements the Benchmarkable Model functionality
-    """
+
+class ScanpyRankGenes(AnnDataModel):
 
     @classmethod
     def benchmarkerFunctional(
@@ -307,6 +369,7 @@ class RankCorrWrapper(Rocks, BenchmarkableModel):
         """
         Class function that initializes, trains, and returns markers for the provided data with the specific params
         args:
+            cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
             X (np.array): the full set of training data input X
@@ -316,24 +379,137 @@ class RankCorrWrapper(Rocks, BenchmarkableModel):
             train_dataloader (pytorch dataloader): dataloader for training data set
             val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
         """
-        if not k:
+        group_by = 'annotation'
+        if 'method' not in train_kwargs:
+            train_kwargs['method'] = 't-test' #default of rank_genes_groups
+        if 'tie_correct' not in train_kwargs:
+            train_kwargs['tie_correct'] = False
+
+        if k is None:
             k = train_kwargs['k']
 
-        if 'k' in train_kwargs:
-            train_kwargs = { **train_kwargs } #copy train_kwargs so later iterations have 'k'
-            train_kwargs.pop('k')
+        adata = cls.prepareData(X, y, train_indices, val_indices, group_by)
 
-        X_train, y_train, _, _ = cls.prepareData(X, y, np.concatenate([train_indices, val_indices]), [])
-        model = cls(X_train, y_train, **create_kwargs)
-        markers = model.CSrankMarkers(**train_kwargs)
+        # First, run rank_genes_groups with a high enough n_genes that we find >= k unique genes
+        unique_names = np.array([])
+        multiplier = 2
+        while len(unique_names) < k: #unlikely this will run more than once, but just in case
+            n_genes = (k // train_kwargs['num_classes']) * multiplier
 
-        if len(markers) < k:
-            print(
-                f'RankCorrWrapper::benchmarkerFunctional: Tried to find {k} markers, only found {len(markers)},'
-                ' increase lamb parameter in train_kwargs.',
+            adata_with_markers = sc.tl.rank_genes_groups(
+                adata, 
+                group_by, 
+                n_genes=n_genes, 
+                method=train_kwargs['method'],
+                tie_correct=train_kwargs['tie_correct'],
+                copy=True,
             )
-        if len(markers) > k:
-            markers = markers[:k]
+            names = np.array(list(it.chain(*adata_with_markers.uns['rank_genes_groups']['names'])), dtype=int)
+            unique_names = np.unique(names)
+            multiplier *= 2
 
-        return markers
+        # add the genes by row until it would put us over budget k, at which point add ones with
+        # lowest pvals
+        genes = np.array([], dtype=int)
+        i = 0
+        while len(genes) < k:
+            gene_row = np.array(list(adata_with_markers.uns['rank_genes_groups']['names'][i]), dtype=int)
+            genes_added = np.unique(np.concatenate([genes, gene_row]))
+            if len(genes_added) <= k:
+                genes = genes_added
+            else:
+                for idx in np.argsort(np.array(list(adata_with_markers.uns['rank_genes_groups']['pvals'][i]))):
+                    if len(genes) == k:
+                        break
+
+                    if gene_row[idx] not in genes:
+                        genes = np.append(genes, gene_row[idx])
+
+            i += 1
+
+        assert len(genes) == k
+
+        return genes
+    
+class COSGWrapper(AnnDataModel):
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X,
+        y,
+        train_indices,
+        val_indices,
+        train_dataloader,
+        val_dataloader,
+        k=None,
+    ):
+        """
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            cls (string): The current, derived class name, used for calling derived class functions
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
+        """
+        group_by = 'annotation'
+        if 'method' not in train_kwargs:
+            train_kwargs['method'] = 't-test' #default of rank_genes_groups
+        if 'tie_correct' not in train_kwargs:
+            train_kwargs['tie_correct'] = False
+
+        if k is None:
+            k = train_kwargs['k']
+
+        adata = cls.prepareData(X, y, train_indices, val_indices, group_by)
+
+        # First, run rank_genes_groups with a high enough n_genes that we find >= k unique genes
+        unique_names = np.array([])
+        multiplier = 2
+        while len(unique_names) < k: #unlikely this will run more than once, but just in case
+            n_genes = (k // train_kwargs['num_classes']) * multiplier
+
+            cosg.cosg(
+                adata, 
+                group_by, 
+                n_genes_user=n_genes, 
+                key_added='cosg',
+            )
+            names = np.array(list(it.chain(*adata.uns['cosg']['names'])), dtype=int)
+            unique_names = np.unique(names)
+            multiplier *= 2
+
+        # add the genes by row until it would put us over budget k, at which point add ones with highest scores
+        genes = np.array([], dtype=int)
+        i = 0
+        while len(genes) < k:
+            gene_row = np.array(list(adata.uns['cosg']['names'][i]), dtype=int)
+            genes_added = np.unique(np.concatenate([genes, gene_row]))
+            if len(genes_added) <= k:
+                genes = genes_added
+            else:
+                for idx in np.argsort(-np.array(list(adata.uns['cosg']['scores'][i]))): # higher scores are more relevant
+                    if len(genes) == k:
+                        break
+
+                    if gene_row[idx] not in genes:
+                        genes = np.append(genes, gene_row[idx])
+
+            i += 1
+
+        assert len(genes) == k
+
+        return genes
