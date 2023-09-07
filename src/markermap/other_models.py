@@ -10,6 +10,7 @@ import itertools as it
 import anndata
 import torch
 import scanpy as sc
+from sklearn.ensemble import RandomForestClassifier
 
 from lassonet import LassoNetClassifier
 from smashpy import smashpy
@@ -209,17 +210,54 @@ class SmashPyWrapper(smashpy, AnnDataModel):
     with SmashPy
     """
 
-    def ensemble_learning(self, *args, **kwargs):
+    def ensemble_learning(self, adata, group_by=None, classifier=None, test_size=0.2, balance=True, verbose=True, save=True):
         """
-        SmashPy has a bug where verbose does not suppress the print statements in this function, so we do it here
+        Redo Smashpy's ensemble_learning function so that it uses all the data for training since we do our
+        testing separately. This also helps us avoid issues with not having class representatives since we 
+        can control that in our own split_data.
         """
-        if ('verbose' not in kwargs) or (kwargs['verbose'] == True):
-            return super().ensemble_learning(*args, **kwargs)
-        else:
-            # https://stackoverflow.com/a/46129367
-            with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
-                return super().ensemble_learning(*args, **kwargs)
+        if group_by is None:
+            print("select a group_by in .obs")
+            return
+        if group_by not in adata.obs.columns:
+            print("group_by must be in .obs")
+            return 
+        
+        if classifier not in ["RandomForest"]:
+            print("classifier must be 'RandomForest'")
+            return 
+        
+        data = adata.X
 
+        myDict = {}
+        for idx, c in enumerate(adata.obs[group_by].cat.categories):
+            myDict[c] = idx
+
+        labels = []
+        for l in adata.obs[group_by].tolist():
+            labels.append(myDict[l])
+
+        labels = np.array(labels)
+
+        X = data
+        y = labels
+
+        weight = []
+        n = len(np.unique(y))
+        for k in range(n):
+            if balance:
+                w = len(y)/float(n*len(y[y==k]))
+                weight.append(w)
+            else:
+                weight.append(1)
+            class_weight = dict(zip(range(n), weight))
+
+        print("Running with (Weighted) Random Forest")
+        clf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight=class_weight)
+        clf.fit(X, y)
+
+        return clf
+            
     def DNN(self, *args, **kwargs):
         """
         SmashPy has a bug where verbose does not suppress the print statements in this function, so we do it here
@@ -274,7 +312,7 @@ class SmashPyWrapper(smashpy, AnnDataModel):
             )
         model_options = { None, 'RandomForest', 'DNN' }
         if model not in model_options:
-            raise Exception(f'SmashPyWrapper::getBenchmarker: model must be one of {mode_options}')
+            raise Exception(f'SmashPyWrapper::getBenchmarker: model must be one of {model_options}')
 
         return partial(
             cls.benchmarkerFunctional,
