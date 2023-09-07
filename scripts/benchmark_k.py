@@ -27,7 +27,7 @@ SCANPY = 'Scanpy Rank Genes'
 COSG = 'COSG'
 
 def handleArgs(argv):
-  data_name_options = ['zeisel', 'paul', 'cite_seq', 'mouse_brain']
+  data_name_options = ['zeisel', 'zeisel_big', 'paul', 'cite_seq', 'mouse_brain', 'mouse_brain_big']
   eval_model_options = ['random_forest', 'k_nearest_neighbors']
   benchmark_options = ['k', 'label_error', 'label_error_markers_only']
 
@@ -87,6 +87,8 @@ precision=32
 
 if data_name == 'zeisel':
   X, y, encoder = get_zeisel(data_dir + 'zeisel/Zeisel.h5ad')
+elif data_name == 'zeisel_big':
+  X, y, encoder = get_zeisel(data_dir + 'zeisel/Zeisel.h5ad', 'names1')
 elif data_name == 'paul':
   X, y, encoder = get_paul(
     data_dir + 'paul15/house_keeping_genes_Mouse_bone_marrow.txt',
@@ -98,6 +100,12 @@ elif data_name == 'mouse_brain':
   X, y, encoder = get_mouse_brain(
     data_dir + 'mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
     data_dir + 'mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
+  )
+elif data_name =='mouse_brain_big':
+  X, y, encoder = get_mouse_brain(
+    data_dir + 'mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
+    data_dir + 'mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
+    relabel=False,
   )
 
 num_classes = len(np.unique(y))
@@ -266,10 +274,10 @@ results, benchmark_mode, benchmark_range = benchmark(
     # L1_VAE: l1_vae,
     RANK_CORR: RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),
     SCANPY: ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
-    # SCANPY + ' overestim_var': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 't-test_overestim_var' }),
-    # SCANPY + ' wilcoxon': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon' }),
-    # SCANPY + ' wilcoxon tie': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
-    # SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
+    SCANPY + ' overestim_var': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 't-test_overestim_var' }),
+    SCANPY + ' wilcoxon': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon' }),
+    SCANPY + ' wilcoxon tie': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
+    SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
     COSG: COSGWrapper.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
   },
   num_times,
@@ -279,6 +287,7 @@ results, benchmark_mode, benchmark_range = benchmark(
   benchmark=benchmark_mode,
   benchmark_range=benchmark_range,
   eval_model=eval_model,
+  min_groups=[2,0,1],
 )
 
 plot_benchmarks(results, benchmark_mode, benchmark_range, mode='accuracy', show_stdev=True, print_vals=True)

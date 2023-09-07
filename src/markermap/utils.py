@@ -205,6 +205,7 @@ def benchmark(
     save_file=None,
     benchmark_range=None,
     eval_model=None,
+    min_groups=None,
 ):
     """
     Benchmark a collection of models by a benchmark param on data X,y. If save_file is specified, results are saved
@@ -223,6 +224,7 @@ def benchmark(
         benchmark_range (array): values that the benchmark ranges over, defaults to none
         eval_model (model): simple model to evaluate the markers. Defaults to None, which will then use
             RandomForestClassifier.
+        min_groups (None or list of ints): parameter passed to split_data
     returns:
         (dict): maps 'misclass' and 'f1' to a dict of model labels to an np.array (num_times x benchmark_levels)
         (string): benchmark
@@ -237,13 +239,12 @@ def benchmark(
 
     results = { 'misclass': {}, 'f1': {} }
     for i in range(num_times):
-        train_dataloader, val_dataloader, test_dataloader, train_indices, val_indices, test_indices = split_data_into_dataloaders(
+        (train_dataloader, val_dataloader, _), (train_indices, val_indices, test_indices) = split_data(
             X,
             y,
-            train_size,
-            val_size,
+            [train_size, val_size, 1 - train_size - val_size],
             batch_size=batch_size,
-            # num_workers=num_workers,
+            min_groups=min_groups,
         )
 
         X_test = X[test_indices,:]
@@ -557,16 +558,18 @@ def parse_adata(adata):
     y = encoder.transform(labels)
     return X, y, encoder
 
-def get_zeisel(file_path):
+def get_zeisel(file_path, names_key='names0'):
     """
     Get the zeisel data located a file path
     args:
         file_path (string): location of zeisel.h5ad file
+        names_key (string): key of Zeisel adata for the classes, defaults to names0 for broad classes
     returns: X data array, y transformed labels, encoder that transformed the labels
     """
     adata = sc.read_h5ad(file_path)
-    adata.obs['names']=adata.obs['names0']
-    adata.obs['annotation'] = adata.obs['names0']
+    adata.obs['names']=adata.obs[names_key]
+    adata.obs['annotation'] = adata.obs[names_key]
+    adata = adata[adata.obs['annotation'] != '(none)'] # if its names1, there are some unknown cells
 
     return parse_adata(adata)
 
@@ -712,13 +715,16 @@ def remove_features_pct_2groups(adata, group_by=None, pct1=0.9, pct2=0.5):
     adata = adata[:, adata.var["general"]]
     return adata
 
-def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, smashpy_preprocess=True):
+def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, smashpy_preprocess=True, relabel=True):
     """
     Get the mouse brain data and remove outliers and perform normalization. Some of the decisions in this function are
     judgement calls, so users should inspect and make their own decisions.
     args:
         mouse_brain_path (string): location of mouse_brain_all_cells.h5ad file
         mouse_brain_labels_path (string): location of cells annotations for mouse_brain data
+        smashpy_preprocess (bool): whether to perform the smashpy preprocessing, defaults to True
+        relabel (bool): if true, relabel to the broad cell classes, otherwise use the specific cell classes.
+            defaults to True
     returns: X data array, y transformed labels, encoder that transformed the labels
     """
     adata_snrna_raw = anndata.read_h5ad(mouse_brain_path)
@@ -727,7 +733,11 @@ def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, smashpy_preproces
     adata_snrna_raw.X = adata_snrna_raw.X.toarray()
     ## Cell type annotations
     labels = pd.read_csv(mouse_brain_labels_path, index_col=0)
-    labels['annotation'] = labels['annotation_1'].apply(lambda x: relabel_mouse_labels(x))
+    if relabel:
+        labels['annotation'] = labels['annotation_1'].apply(lambda x: relabel_mouse_labels(x))
+    else:
+        labels['annotation'] = labels['annotation_1']
+
     labels = labels[['annotation']]
     labels = labels.reindex(index=adata_snrna_raw.obs_names)
     adata_snrna_raw.obs[labels.columns] = labels
@@ -837,6 +847,99 @@ def split_data_into_dataloaders_no_test(X, Y, train_size, batch_size = 64, num_w
         val_indices = None
         
     return train_dataloader, val_dataloader, train_indices, val_indices
+
+def split_data(
+    X, 
+    y, 
+    size_percents, 
+    batch_size=64, 
+    num_workers=0, 
+    seed=None, 
+    min_groups=None, 
+):
+    """
+    Split X and y into
+    Args:
+        X (array): Input data
+        y (vector): Output labels
+        size_percents (list of floats): the percent sizes of sets of data. If two values are passed then
+            two dataloaders and two sets of indices are returned. The size_percents list should add up to 1,
+            but the last value is not used, the last set of data will just be the remaining data.
+        batch_size (int): defaults to 64
+        num_workers (int): number of cores for multi-threading, defaults to 0 for no multi-threading
+        seed (int): defaults to none, set to reproduce experiments with same train/val split
+        min_groups (None or list of ints): if not none, should be a list of integers for each set of data.
+            That set of data must have at least that number of representatives of each group in y
+    """
+    assert np.sum(size_percents) <= 1
+    assert len(X) == len(y)
+    assert batch_size > 1
+    if min_groups is not None:
+        assert len(size_percents) == len(min_groups)
+
+    rng = np.random.default_rng() if seed is None else np.random.default_rng(seed=seed)
+
+    if min_groups is None:
+        min_groups = [0]*len(size_percents)
+
+    # Split data by cell type class
+    groups = np.unique(y)
+    y_dict = {}
+    for group in groups:
+        y_dict[group] = np.where(y == group)[0]
+
+    # For each set (train, val, test), pick min_group elements from each group to be in that set
+    indices_list = [[] for _ in range(len(min_groups))]
+    for i,min_group in enumerate(min_groups):
+        if min_group == 0:
+            continue 
+
+        for group in groups:
+            assert len(y_dict[group]) >= min_group, f'min_group={min_group}, but group {group} \
+                only has {len(y_dict[group])} members left'
+            idxs = rng.choice(np.arange(len(y_dict[group])), size=min_group, replace=False)
+            indices_list[i].extend(y_dict[group][idxs])
+            y_dict[group] = np.delete(y_dict[group], idxs) # remove the idxs from selection
+
+    # Return the remaining indices to a single list
+    remaining_idxs = np.array([], dtype=int)
+    for group in groups:
+        remaining_idxs = np.concatenate([remaining_idxs, y_dict[group]])
+
+    rng.shuffle(remaining_idxs) # shuffle in place the remaining indices array
+
+    # Construct the set dataloaders and indices so that the percents match up, even with min_groups
+    dataloaders = []
+    all_indices = []
+    set_start = 0
+    for i, (percent, min_group) in enumerate(zip(size_percents, min_groups)):
+        if i == (len(size_percents) - 1):
+            set_indices = np.concatenate([
+                remaining_idxs[set_start:], 
+                np.array(indices_list[i], dtype=int),
+            ])
+        else:
+            set_len = int(percent * len(X)) - (min_group * len(groups))
+            assert set_len >= 0, f'Satisfying min_group of {min_group} would require set {i} to have \
+                greater than {percent} percent size'
+            set_indices = np.concatenate([
+                remaining_idxs[set_start:(set_start + set_len)], 
+                np.array(indices_list[i], dtype=int),
+            ])
+
+        assert len(indices_list[i]) == (min_group * len(groups)), f'{len(indices_list[i])} {min_group * len(groups)}'
+
+        set_x = X[set_indices, :]
+        set_y = y[set_indices]
+
+        # shuffle the first set, which will likely be the training set and we want to shuffle for batches
+        set_dataloader = get_dataloader(set_x, set_y, batch_size, shuffle=(i==0), num_workers=num_workers)
+        dataloaders.append(set_dataloader)
+        all_indices.append(set_indices)
+
+        set_start += set_len
+
+    return dataloaders, all_indices
 
 #TODO: extract functionality of this and " "_no_test to a helper function, code reuse
 def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, num_workers = 0, seed = None):
