@@ -16,7 +16,7 @@ from lassonet import LassoNetClassifier
 from smashpy import smashpy
 from RankCorr.rocks import Rocks
 import cosg
-
+import persist
 
 class BenchmarkableModel():
     @classmethod
@@ -545,3 +545,111 @@ class COSGWrapper(AnnDataModel):
         assert len(genes) == k
 
         return genes
+    
+class PersistWrapper(BenchmarkableModel):
+
+    def prepareData(adata, train_indices, val_indices, group_by):
+        """
+        Since SmashPy requires data structured as AnnData, recreate it from X and y
+        args:
+            X (np.array): input data, counts of various proteins
+            y (np.array): output data, what type of cell it is
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            group_by (string): the obs ouput the smashpy looks to
+        """
+
+        train_val_indices = np.concatenate([train_indices, val_indices])
+
+        # this line will emit a warning, "Transforming to str index" from AnnData, I am having trouble making it
+        # go away. See: https://github.com/theislab/anndata/issues/311
+        aData = anndata.AnnData(X=pd.DataFrame(X).iloc[train_val_indices, :])
+        y_series = pd.Series(y, dtype='string').astype('category').iloc[train_val_indices]
+        # some index hackery is required here to get the index types to match
+        y_series.index = y_series.index.astype('string').astype('object')
+
+        aData.obs[group_by] = y_series
+        return aData
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        X,
+        y,
+        train_indices,
+        val_indices,
+        train_dataloader,
+        val_dataloader,
+        k=None,
+    ):
+        """
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            cls (string): The current, derived class name, used for calling derived class functions
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            X (np.array): the full set of training data input X
+            y (np.array): the full set of training data output y
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            train_dataloader (pytorch dataloader): dataloader for training data set
+            val_dataloader (pytorch dataloader): dataloader for validation data set
+            k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
+        """
+
+        
+        
+        # Initialize the dataset for PERSIST
+        # Note: Here, data_train.layers['bin'] is a sparse array
+        # data_train.layers['bin'].A converts it to a dense array
+        train_dataset = persist.ExpressionDataset(adata_train.layers['bin'].A, adata_train.obs['cell_types_25_codes'])
+        val_dataset = persist.ExpressionDataset(adata_val.layers['bin'].A, adata_val.obs['cell_types_25_codes'])
+
+
+        # Use GPU device if available -- we highly recommend using a GPU!
+        device = torch.device(torch.cuda.current_device() if torch.cuda.is_available() else 'cpu')
+
+        # Number of genes to select within the current selection process.
+        num_genes = (32, 64)
+        persist_results = {}
+
+        # Set up the PERSIST selector
+        selector = persist.PERSIST(
+            train_dataset, 
+            val_dataset, 
+            loss_fn=torch.nn.CrossEntropyLoss(), 
+            device=device,
+        )
+
+        # Coarse removal of genes
+        print('Starting initial elimination...')
+        candidates, model = selector.eliminate(target=500, max_nepochs=250)
+        print('Completed initial elimination.')
+
+        print('Selecting specific number of genes...')
+        for num in num_genes:
+            inds, model = selector.select(num_genes=num, max_nepochs=250)
+            persist_results[num] = inds
+        print('Done')
+
+        # obtain a copy of features from the anndata object
+        # Note: Without the .copy(), you will modify adata itself, which may be desirable in some use cases.
+        df = adata.var.copy()
+
+        # set a boolean = True for genes selected in any of the rounds
+        for num in num_genes:
+            df[f'persist_set_{num}'] = False
+            ind = df.iloc[persist_results[num]].index
+            df.loc[ind,f'persist_set_{num}'] = True
+
+        # only keep features (genes) that were selected in any set by PERSIST, and save for subsequent use
+        df = df[df[[f'persist_set_{num}' for num in num_genes]].any(axis=1)]
+
+        df.head(2)
+
+
+
