@@ -121,7 +121,6 @@ elif data_name == 'paul':
   X, y, encoder = get_paul(
     data_dir + 'paul15/house_keeping_genes_Mouse_bone_marrow.txt',
     data_dir + 'paul15/house_keeping_genes_Mouse_HSC.txt',
-    smashpy_preprocess=False,
   )
 elif data_name == 'cite_seq':
   X, y, encoder = get_citeseq(data_dir + 'cite_seq/CITEseq.h5ad')
