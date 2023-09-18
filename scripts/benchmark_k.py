@@ -2,10 +2,9 @@ import sys
 import argparse
 import numpy as np
 
-from sklearn.preprocessing import LabelEncoder
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
-
+from sklearn.linear_model import LinearRegression
 
 from markermap.other_models import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper, ScanpyRankGenes, COSGWrapper
 from markermap.vae_models import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
@@ -28,8 +27,9 @@ COSG = 'COSG'
 
 def handleArgs(argv):
   data_name_options = ['zeisel', 'zeisel_big', 'paul', 'cite_seq', 'mouse_brain', 'mouse_brain_big']
-  eval_model_options = ['random_forest', 'k_nearest_neighbors']
+  eval_model_options = ['random_forest', 'k_nearest_neighbors', 'linear_regression']
   benchmark_options = ['k', 'label_error', 'label_error_markers_only']
+  eval_type_options = ['classify', 'reconstruct']
 
   parser = argparse.ArgumentParser()
   parser.add_argument('data_name', help='data set name', choices=data_name_options)
@@ -41,10 +41,17 @@ def handleArgs(argv):
     '--eval_model',
     help='what simple classifier to use to evaluate the models',
     choices=eval_model_options,
-    default='random_forest',
+    default=None,
   )
   parser.add_argument('-b', '--benchmark', help='what we are benchmarking over', default='k', choices=benchmark_options)
   parser.add_argument('--data_dir', help='directory where the input data is located', type=str, default='data/')
+  parser.add_argument(
+    '--eval_type', 
+    help='whether the evaluator is classification or reconstruction', 
+    choices=eval_type_options, 
+    default='classify',
+  )
+  parser.add_argument('--single_val', help='use when you don\'t want to benchmark on a range', type=int, default=None)
 
   args = parser.parse_args()
 
@@ -57,15 +64,33 @@ def handleArgs(argv):
     args.eval_model, 
     args.benchmark,
     args.data_dir,
+    args.eval_type,
+    args.single_val,
   )
 
 # Main
-data_name, save_file, num_times, gpus, hidden_layer_size, eval_model, benchmark_mode, data_dir = handleArgs(sys.argv)
+(
+  data_name, 
+  save_file, 
+  num_times, 
+  gpus, 
+  hidden_layer_size, 
+  eval_model, 
+  benchmark_mode, 
+  data_dir,
+  eval_type,
+  single_val,
+) = handleArgs(sys.argv)
+
+if eval_model is None:
+  eval_model = 'random_forest' if (eval_type == 'classify') else 'linear_regression'
 
 if eval_model == 'random_forest':
   eval_model = RandomForestClassifier()
 elif eval_model == 'k_nearest_neighbors':
   eval_model = KNeighborsClassifier()
+elif eval_model == 'linear_regression':
+  eval_model = LinearRegression()
 
 z_size = 16
 
@@ -75,10 +100,13 @@ batch_norm = True
 global_t = 3.0
 k=50
 
-if benchmark_mode == 'k':
-  benchmark_range = [10, 25, 50, 100, 250]
-elif benchmark_mode == 'label_error' or benchmark_mode == 'label_error_markers_only':
-  benchmark_range = [0.1, 0.2, 0.5, 0.75, 1]
+if single_val is None:
+  if benchmark_mode == 'k':
+    benchmark_range = [10, 25, 50, 100, 250]
+  elif benchmark_mode == 'label_error' or benchmark_mode == 'label_error_markers_only':
+    benchmark_range = [0.1, 0.2, 0.5, 0.75, 1]
+else:
+  benchmark_range = [single_val]
 
 max_epochs = 100
 
@@ -277,7 +305,7 @@ results, benchmark_mode, benchmark_range = benchmark(
     SCANPY + ' overestim_var': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 't-test_overestim_var' }),
     SCANPY + ' wilcoxon': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon' }),
     SCANPY + ' wilcoxon tie': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
-    SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
+    # SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
     COSG: COSGWrapper.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
   },
   num_times,
@@ -286,8 +314,10 @@ results, benchmark_mode, benchmark_range = benchmark(
   save_file=save_file,
   benchmark=benchmark_mode,
   benchmark_range=benchmark_range,
+  eval_type=eval_type,
   eval_model=eval_model,
-  min_groups=[2,0,1],
+  min_groups=[2,1,1],
 )
 
-plot_benchmarks(results, benchmark_mode, benchmark_range, mode='accuracy', show_stdev=True, print_vals=True)
+plot_mode = 'accuracy' if eval_type == 'classify' else 'recon'
+plot_benchmarks(results, benchmark_mode, benchmark_range, mode=plot_mode, show_stdev=True, print_vals=True)

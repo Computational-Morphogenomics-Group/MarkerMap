@@ -1,6 +1,7 @@
 import gc
 import numpy as np
 import pandas as pd
+from collections import defaultdict
 
 import torch
 from torch import nn
@@ -9,6 +10,7 @@ from torch.utils.data import DataLoader
 
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import confusion_matrix, accuracy_score, balanced_accuracy_score, classification_report
 
 import umap
@@ -17,7 +19,8 @@ import matplotlib.pyplot as plt
 import scanpy as sc
 import anndata
 
-from markermap.other_models import SmashPyWrapper
+import markermap.other_models as other_models
+import markermap.vae_models as vae_models
 
 class ExperimentIndices:
     def __init__(self, train_indices, val_indices, test_indices):
@@ -163,6 +166,22 @@ def new_model_metrics(train_x, train_y, test_x, test_y, markers = None, model = 
     misclass_rate = 1 - accuracy_score(test_y, pred_y)
     return misclass_rate, test_rep, cm
 
+def recon_model_metrics(train_x, val_x, test_x, markers, model=None):
+    if model is None:
+        model = LinearRegression()
+
+    train_x = np.concatenate([train_x, val_x], axis=0)
+
+    markers_train_x = train_x[:, markers]
+    markers_test_x = test_x[:, markers]
+    reg = model.fit(markers_train_x, train_x)
+    test_recon_x = reg.predict(markers_test_x)
+
+    l2_loss = np.mean((test_x - test_recon_x)**2) 
+    # divide by num cells and num genes so we can compare across datasets
+
+    return l2_loss
+
 def model_variances(path, tries):
     misclass_arr = []
     weight_f1_arr = []
@@ -204,6 +223,7 @@ def benchmark(
     batch_size = 64,
     save_file=None,
     benchmark_range=None,
+    eval_type='classify',
     eval_model=None,
     min_groups=None,
 ):
@@ -222,8 +242,10 @@ def benchmark(
         batch_size (int): defaults to 64
         save_file (string): if not None, file to save results to, defaults to None
         benchmark_range (array): values that the benchmark ranges over, defaults to none
+        eval_type (one of 'classify' or 'reconstruct'): whether to evaluate by classifying cells into their
+            group labels, or reconstruct the cells from k to their full expression. Defaults to 'classify'
         eval_model (model): simple model to evaluate the markers. Defaults to None, which will then use
-            RandomForestClassifier.
+            RandomForestClassifier for classification or LinearRegression for reconstruction.
         min_groups (None or list of ints): parameter passed to split_data
     returns:
         (dict): maps 'misclass' and 'f1' to a dict of model labels to an np.array (num_times x benchmark_levels)
@@ -236,8 +258,15 @@ def benchmark(
 
     if not benchmark_range:
         raise Exception(f'benchmark: For benchmark {benchmark}, please provide a range')
+    
+    eval_options = { 'classify', 'reconstruct' }
+    if eval_type not in eval_options:
+        raise Exception(f'benchmark: Possible choices of eval_type are {eval_type}')
 
-    results = { 'misclass': {}, 'f1': {} }
+    if (benchmark == 'label_error') and (eval_type == 'reconstruct'):
+        print(f'WARNING benchmark: benchmark={benchmark} with eval_type={eval_type} doesn\'t have label error')
+
+    results = { 'misclass': {}, 'f1': {} } if (eval_type == 'classify') else { 'l2': {} }
     for i in range(num_times):
         (train_dataloader, val_dataloader, _), (train_indices, val_indices, test_indices) = split_data(
             X,
@@ -252,8 +281,7 @@ def benchmark(
 
         for model_label, model_functional in models.items():
 
-            misclass_results = []
-            f1_results = []
+            model_results = defaultdict(lambda: [])
             for val in benchmark_range:
                 if benchmark == 'k':
                     markers = model_functional(
@@ -295,27 +323,32 @@ def benchmark(
                     elif benchmark == 'label_error_markers_only':
                         classifier_y_train = y[np.concatenate([train_indices, val_indices])]
 
-                model_misclass, test_rep, _ = new_model_metrics(
-                    X[np.concatenate([train_indices, val_indices]), :],
-                    classifier_y_train,
-                    X_test,
-                    y_test,
-                    markers = markers,
-                    model=eval_model,
-                )
+                if (eval_type == 'classify'):
+                    model_misclass, test_rep, _ = new_model_metrics(
+                        X[np.concatenate([train_indices, val_indices]), :],
+                        classifier_y_train,
+                        X_test,
+                        y_test,
+                        markers = markers,
+                        model=eval_model,
+                    )
+                    model_results['misclass'].append(model_misclass)
+                    model_results['f1'].append(test_rep['weighted avg']['f1-score'])
+                elif (eval_type == 'reconstruct'):
+                    l2_error = recon_model_metrics(
+                        X[train_indices, :],
+                        X[val_indices, :],
+                        X_test,
+                        markers,
+                        eval_model,
+                    )
+                    model_results['l2'].append(l2_error)
 
-                misclass_results.append(model_misclass)
-                f1_results.append(test_rep['weighted avg']['f1-score'])
-
-            misclass_results_ndarray = np.array(misclass_results).reshape((1,len(misclass_results)))
-            f1_results_ndarray = np.array(f1_results).reshape((1,len(f1_results)))
-            if model_label not in results['misclass']:
-                results['misclass'][model_label] = misclass_results_ndarray
-                results['f1'][model_label] = f1_results_ndarray
-            else:
-                results['misclass'][model_label] = np.append(results['misclass'][model_label], misclass_results_ndarray, axis=0)
-                results['f1'][model_label] = np.append(results['f1'][model_label], f1_results_ndarray, axis=0)
-
+            for key,val in model_results.items():
+                val_ndarray = np.array(val).reshape((1,len(val)))
+                current_res = results[key][model_label] if model_label in results[key] else np.array([]).reshape((0,len(benchmark_range)))
+                results[key][model_label] = np.append(current_res, val_ndarray, axis=0)
+            
             if save_file:
                 np.save(save_file, results)
 
@@ -449,12 +482,12 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
         show_stdev (bool): whether to show fill_between range of 1 stdev over the num_runs, defaults to false
         print_vals (bool): print the vals that are displayed in the plot
     """
-    mode_options = {'misclass', 'accuracy', 'f1'}
+    mode_options = {'misclass', 'accuracy', 'f1', 'recon'}
     if mode not in mode_options:
         raise Exception(f'plot_benchmarks: Possible choices of mode are {mode_options}')
 
     markers = ['.','o','v','^','<','>','8','s','p','P','*','h','H','+','x','X','D','d','|','_','1','2','3','4',',']
-    fig1, ax1 = plt.subplots()
+    _, ax1 = plt.subplots()
     i = 0
     num_runs = 1
 
@@ -462,6 +495,8 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
         results = results['misclass']
     elif mode == 'f1':
         results = results['f1']
+    elif mode == 'recon':
+        results = results['l2']
 
     for label, result in results.items():
         if mode == 'accuracy':
@@ -598,7 +633,7 @@ def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path, smashpy_prep
     returns: X data array, y transformed labels, encoder that transformed the labels
     """
     adata = sc.datasets.paul15()
-    sm = SmashPyWrapper()
+    sm = other_models.SmashPyWrapper()
     if (smashpy_preprocess):
         sm.data_preparation(adata)
     else:

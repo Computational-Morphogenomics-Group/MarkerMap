@@ -9,10 +9,11 @@ from torch.nn import functional as F
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.callbacks import LearningRateMonitor
 from sklearn.ensemble import RandomForestClassifier
 
-from markermap.other_models import BenchmarkableModel
-from markermap.utils import split_data_into_dataloaders_no_test
+import markermap.other_models as other_models
+import markermap.utils as utils
 
 
 # rounding up lowest float32 on my system
@@ -231,7 +232,7 @@ class GumbelClassifier(pl.LightningModule):
 
         return inds_running_state
 
-class VAE(pl.LightningModule, BenchmarkableModel):
+class VAE(pl.LightningModule, other_models.BenchmarkableModel):
     def __init__(
         self,
         input_size,
@@ -322,8 +323,9 @@ class VAE(pl.LightningModule, BenchmarkableModel):
         return loss
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr = self.lr)
-
+        return { 
+            'optimizer': torch.optim.Adam(self.parameters(), lr = self.lr),
+        }
 
 
 class VAE_l1_diag(VAE):
@@ -995,7 +997,7 @@ class MarkerMap(VAE_Gumbel_RunningState):
         # and then train and fit model
         assert train_ratio >= 0
         assert train_ratio <= 1
-        train_dataloader, val_dataloader, train_indices, val_indices = split_data_into_dataloaders_no_test(X, Y, train_size = train_ratio)
+        train_dataloader, val_dataloader, train_indices, val_indices = utils.split_data_into_dataloaders_no_test(X, Y, train_size = train_ratio)
         train_model(self, train_dataloader, val_dataloader, gpus = gpus, min_epochs = min_epochs, max_epochs = max_epochs)
         markers = self.markers()
         # train additional model
@@ -1255,8 +1257,14 @@ def train_model(model, train_dataloader, val_dataloader, gpus = None, tpu_cores 
             enable_model_summary=verbose, enable_progress_bar = verbose, enable_checkpointing=False)
     if auto_lr:
         # for some reason plural val_dataloaders
-        lr_finder = trainer.tuner.lr_find(model, train_dataloaders = train_dataloader, val_dataloaders = val_dataloader, max_lr = max_lr, mode = lr_explore_mode, num_training = num_lr_rates)
-
+        lr_finder = trainer.tuner.lr_find(
+            model, 
+            train_dataloaders = train_dataloader, 
+            val_dataloaders = val_dataloader, 
+            max_lr = max_lr, 
+            mode = lr_explore_mode, 
+            num_training = num_lr_rates,
+        )
 
         if verbose:
             fig = lr_finder.plot(suggest=True)
