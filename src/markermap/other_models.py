@@ -29,22 +29,27 @@ class BenchmarkableModel():
         """
         return partial(cls.benchmarkerFunctional, create_kwargs, train_kwargs)
 
-    def prepareData(X, y, train_indices, val_indices):
+    @classmethod
+    def prepareData(cls, adata, train_indices, val_indices, group_by, layer=None):
         """
         Sorts X and y data into train and val sets based on the provided indices
         args:
-            X (np.array): input data, counts of various proteins
-            y (np.array): output data, what type of cell it is
+            adata (AnnData object): the data, including input and labels
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
+            layer (string): 
         """
-        X_train = X[train_indices, :]
-        y_train = y[train_indices]
-        X_val = X[val_indices, :]
-        y_val = y[val_indices]
-
-        return X_train, y_train, X_val, y_val
-
+        if layer is None:
+            X_train = adata[train_indices,:].X
+            X_val = adata[val_indices,:].X
+        else:
+            X_train = adata[train_indices,:].layers[layer]
+            X_val = adata[val_indices,:].layers[layer]
+    
+        y_train = adata[train_indices,:].obs[group_by]
+        y_val = adata[val_indices,:].obs[group_by]
+    
+        return X_train, y_train, X_val, y_val, adata
 
 class RandomBaseline(BenchmarkableModel):
     """
@@ -182,27 +187,17 @@ class AnnDataModel(BenchmarkableModel):
     BenchmarkableModel that expect the data as an AnnData object. 
     """
 
-    def prepareData(X, y, train_indices, val_indices, group_by):
+    @classmethod
+    def prepareData(cls, adata, train_indices, val_indices):
         """
-        Since SmashPy requires data structured as AnnData, recreate it from X and y
+        Sorts X and y data into train and val sets based on the provided indices
         args:
-            X (np.array): input data, counts of various proteins
-            y (np.array): output data, what type of cell it is
+            adata (AnnData object): the data, including input and labels
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            group_by (string): the obs ouput the smashpy looks to
+            layer (string): 
         """
-        train_val_indices = np.concatenate([train_indices, val_indices])
-
-        # this line will emit a warning, "Transforming to str index" from AnnData, I am having trouble making it
-        # go away. See: https://github.com/theislab/anndata/issues/311
-        aData = anndata.AnnData(X=pd.DataFrame(X).iloc[train_val_indices, :])
-        y_series = pd.Series(y, dtype='string').astype('category').iloc[train_val_indices]
-        # some index hackery is required here to get the index types to match
-        y_series.index = y_series.index.astype('string').astype('object')
-
-        aData.obs[group_by] = y_series
-        return aData
+        return adata[np.concatenate([train_indices, val_indices]),:]
 
 class SmashPyWrapper(smashpy, AnnDataModel):
     """
@@ -327,12 +322,10 @@ class SmashPyWrapper(smashpy, AnnDataModel):
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
         random_seeds_queue=None,
         model='RandomForest',
@@ -343,8 +336,8 @@ class SmashPyWrapper(smashpy, AnnDataModel):
             cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
             train_dataloader (pytorch dataloader): dataloader for training data set
@@ -367,7 +360,7 @@ class SmashPyWrapper(smashpy, AnnDataModel):
         }
         assert create_kwargs['group_by'] == train_kwargs['group_by']
 
-        create_kwargs['adata'] = cls.prepareData(X, y, train_indices, val_indices, create_kwargs['group_by'])
+        create_kwargs['adata'] = cls.prepareData(adata, train_indices, val_indices)
 
         if k:
             train_kwargs['restrict_top'] = ('global', k)
@@ -396,12 +389,10 @@ class ScanpyRankGenes(AnnDataModel):
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
     ):
         """
@@ -410,8 +401,8 @@ class ScanpyRankGenes(AnnDataModel):
             cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
             train_dataloader (pytorch dataloader): dataloader for training data set
@@ -427,7 +418,7 @@ class ScanpyRankGenes(AnnDataModel):
         if k is None:
             k = train_kwargs['k']
 
-        adata = cls.prepareData(X, y, train_indices, val_indices, group_by)
+        adata = cls.prepareData(adata, train_indices, val_indices)
 
         # First, run rank_genes_groups with a high enough n_genes that we find >= k unique genes
         unique_names = np.array([])
@@ -477,12 +468,10 @@ class COSGWrapper(AnnDataModel):
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
     ):
         """
@@ -491,8 +480,8 @@ class COSGWrapper(AnnDataModel):
             cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
             train_dataloader (pytorch dataloader): dataloader for training data set
@@ -501,12 +490,11 @@ class COSGWrapper(AnnDataModel):
         returns:
             (np.array) the selected k markers
         """
-        group_by = 'annotation'
 
         if k is None:
             k = train_kwargs['k']
 
-        adata = cls.prepareData(X, y, train_indices, val_indices, group_by)
+        train_adata = cls.prepareData(adata, train_indices, val_indices)
 
         # First, run rank_genes_groups with a high enough n_genes that we find >= k unique genes
         unique_names = np.array([])
@@ -515,12 +503,12 @@ class COSGWrapper(AnnDataModel):
             n_genes = (k // train_kwargs['num_classes']) * multiplier
 
             cosg.cosg(
-                adata, 
+                train_adata, 
                 group_by, 
                 n_genes_user=n_genes, 
                 key_added='cosg',
             )
-            names = np.array(list(it.chain(*adata.uns['cosg']['names'])), dtype=int)
+            names = np.array(list(it.chain(*train_adata.uns['cosg']['names'])), dtype=int)
             unique_names = np.unique(names)
             multiplier *= 2
 
@@ -528,12 +516,12 @@ class COSGWrapper(AnnDataModel):
         genes = np.array([], dtype=int)
         i = 0
         while len(genes) < k:
-            gene_row = np.array(list(adata.uns['cosg']['names'][i]), dtype=int)
+            gene_row = np.array(list(train_adata.uns['cosg']['names'][i]), dtype=int)
             genes_added = np.unique(np.concatenate([genes, gene_row]))
             if len(genes_added) <= k:
                 genes = genes_added
             else:
-                for idx in np.argsort(-np.array(list(adata.uns['cosg']['scores'][i]))): # higher scores are more relevant
+                for idx in np.argsort(-np.array(list(train_adata.uns['cosg']['scores'][i]))): # higher scores are more relevant
                     if len(genes) == k:
                         break
 
@@ -548,7 +536,8 @@ class COSGWrapper(AnnDataModel):
     
 class PersistWrapper(BenchmarkableModel):
 
-    def prepareData(adata, train_indices, val_indices, group_by):
+    @classmethod
+    def prepareData(cls, adata, train_indices, val_indices, group_by):
         """
         Since SmashPy requires data structured as AnnData, recreate it from X and y
         args:
@@ -558,30 +547,19 @@ class PersistWrapper(BenchmarkableModel):
             val_indices (array-like): the indices to be used as the validation set
             group_by (string): the obs ouput the smashpy looks to
         """
-
-        train_val_indices = np.concatenate([train_indices, val_indices])
-
-        # this line will emit a warning, "Transforming to str index" from AnnData, I am having trouble making it
-        # go away. See: https://github.com/theislab/anndata/issues/311
-        aData = anndata.AnnData(X=pd.DataFrame(X).iloc[train_val_indices, :])
-        y_series = pd.Series(y, dtype='string').astype('category').iloc[train_val_indices]
-        # some index hackery is required here to get the index types to match
-        y_series.index = y_series.index.astype('string').astype('object')
-
-        aData.obs[group_by] = y_series
-        return aData
+        adata.layers['bin'] = (adata.X > 0).astype(np.float32)
+        # adata.layers['bin'] = (adata.layers['counts'] > 0).astype(np.float32)
+        return super(PersistWrapper, cls).prepareData(adata, train_indices, val_indices, group_by, layer='bin')
 
     @classmethod
     def benchmarkerFunctional(
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
     ):
         """
@@ -590,8 +568,8 @@ class PersistWrapper(BenchmarkableModel):
             cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
             train_dataloader (pytorch dataloader): dataloader for training data set
@@ -600,22 +578,19 @@ class PersistWrapper(BenchmarkableModel):
         returns:
             (np.array) the selected k markers
         """
+        X_train, y_train, X_val, y_val, adata = cls.prepareData(adata, train_indices, val_indices, group_by)
 
-        
+        if k is None:
+            k = train_kwargs['k']
         
         # Initialize the dataset for PERSIST
         # Note: Here, data_train.layers['bin'] is a sparse array
         # data_train.layers['bin'].A converts it to a dense array
-        train_dataset = persist.ExpressionDataset(adata_train.layers['bin'].A, adata_train.obs['cell_types_25_codes'])
-        val_dataset = persist.ExpressionDataset(adata_val.layers['bin'].A, adata_val.obs['cell_types_25_codes'])
-
+        train_dataset = persist.ExpressionDataset(X_train, y_train)
+        val_dataset = persist.ExpressionDataset(X_val, y_val)
 
         # Use GPU device if available -- we highly recommend using a GPU!
         device = torch.device(torch.cuda.current_device() if torch.cuda.is_available() else 'cpu')
-
-        # Number of genes to select within the current selection process.
-        num_genes = (32, 64)
-        persist_results = {}
 
         # Set up the PERSIST selector
         selector = persist.PERSIST(
@@ -625,31 +600,11 @@ class PersistWrapper(BenchmarkableModel):
             device=device,
         )
 
-        # Coarse removal of genes
-        print('Starting initial elimination...')
-        candidates, model = selector.eliminate(target=500, max_nepochs=250)
-        print('Completed initial elimination.')
+        # Coarse removal of genes. This can fail, so if it fails to find after 5 tries, just do the select step
+        try:
+            selector.eliminate(target=k*10, max_nepochs=250, tol=0.4, max_trials=5)
+        except ValueError:
+            pass
 
-        print('Selecting specific number of genes...')
-        for num in num_genes:
-            inds, model = selector.select(num_genes=num, max_nepochs=250)
-            persist_results[num] = inds
-        print('Done')
-
-        # obtain a copy of features from the anndata object
-        # Note: Without the .copy(), you will modify adata itself, which may be desirable in some use cases.
-        df = adata.var.copy()
-
-        # set a boolean = True for genes selected in any of the rounds
-        for num in num_genes:
-            df[f'persist_set_{num}'] = False
-            ind = df.iloc[persist_results[num]].index
-            df.loc[ind,f'persist_set_{num}'] = True
-
-        # only keep features (genes) that were selected in any set by PERSIST, and save for subsequent use
-        df = df[df[[f'persist_set_{num}' for num in num_genes]].any(axis=1)]
-
-        df.head(2)
-
-
-
+        markers, _ = selector.select(num_genes=k, max_nepochs=250)
+        return markers
