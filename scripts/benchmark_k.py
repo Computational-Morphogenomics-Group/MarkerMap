@@ -302,12 +302,12 @@ l1_vae = VAE_l1_diag.getBenchmarker(
 
 unsup_persist = PersistWrapper.getBenchmarker(
   create_kwargs = { 'supervised': False }, 
-  train_kwargs = { 'k': k, 'eliminate_step': True },
+  train_kwargs = { 'k': k, 'eliminate_step': True, 'eliminate_nepochs': 50 },
 )
 
 sup_persist = PersistWrapper.getBenchmarker(
   create_kwargs = { 'supervised': True }, 
-  train_kwargs = { 'k': k, 'eliminate_step': True },
+  train_kwargs = { 'k': k, 'eliminate_step': True, 'eliminate_nepochs': 50 },
 )
 
 results, benchmark_mode, benchmark_range = benchmark(

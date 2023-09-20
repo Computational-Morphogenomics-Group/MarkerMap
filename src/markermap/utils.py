@@ -740,8 +740,8 @@ def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, smashpy_preproces
     """
     adata_snrna_raw = anndata.read_h5ad(mouse_brain_path)
     del adata_snrna_raw.raw
-    adata_snrna_raw.layers['counts'] = adata_snrna_raw.X # save the counts in a layer
     adata_snrna_raw.X = adata_snrna_raw.X.toarray()
+    adata_snrna_raw.layers['counts'] = adata_snrna_raw.X # save the counts in a layer
     ## Cell type annotations
     labels = pd.read_csv(mouse_brain_labels_path, index_col=0)
     if relabel:
