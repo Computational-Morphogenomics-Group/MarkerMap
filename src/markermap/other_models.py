@@ -30,7 +30,7 @@ class BenchmarkableModel():
         return partial(cls.benchmarkerFunctional, create_kwargs, train_kwargs)
 
     @classmethod
-    def prepareData(cls, adata, train_indices, val_indices, group_by, layer=None):
+    def prepareData(cls, adata, train_indices, val_indices, group_by=None, layer=None):
         """
         Sorts X and y data into train and val sets based on the provided indices
         args:
@@ -45,9 +45,13 @@ class BenchmarkableModel():
         else:
             X_train = adata[train_indices,:].layers[layer]
             X_val = adata[val_indices,:].layers[layer]
-    
-        y_train = adata[train_indices,:].obs[group_by]
-        y_val = adata[val_indices,:].obs[group_by]
+
+        if group_by is None:
+            y_train = adata[train_indices,:].X
+            y_val = adata[val_indices,:].X
+        else:
+            y_train = adata[train_indices,:].obs[group_by].cat.codes
+            y_val = adata[val_indices,:].obs[group_by].cat.codes
     
         return X_train, y_train, X_val, y_val, adata
 
@@ -61,27 +65,31 @@ class RandomBaseline(BenchmarkableModel):
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
+        batch_size,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
+        k=None,
         **kwargs,
     ):
         """
         Class function that initializes, trains, and returns markers for the provided data with the specific params
         args:
+            cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            train_data ():
-            val_data ():
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
             k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
         """
         all_kwargs = {**create_kwargs, **train_kwargs, **kwargs}
-        return np.random.permutation(range(X.shape[1]))[:all_kwargs['k']]
+        return np.random.permutation(range(adata.shape[1]))[:all_kwargs['k']]
 
 
 class LassoNetWrapper(LassoNetClassifier, BenchmarkableModel):
@@ -94,12 +102,11 @@ class LassoNetWrapper(LassoNetClassifier, BenchmarkableModel):
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
+        batch_size,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
     ):
         """
@@ -108,18 +115,19 @@ class LassoNetWrapper(LassoNetClassifier, BenchmarkableModel):
             cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
         """
         if not k:
             k = train_kwargs['k']
 
-        X_train, y_train, X_val, y_val = cls.prepareData(X, y, train_indices, val_indices)
+        X_train, y_train, X_val, y_val, adata = cls.prepareData(adata, train_indices, val_indices, group_by)
 
         model = LassoNetClassifier(**create_kwargs)
         model.path(X_train, y_train, X_val = X_val, y_val = y_val)
@@ -132,30 +140,35 @@ class RankCorrWrapper(Rocks, BenchmarkableModel):
     """
 
     @classmethod
+    def prepareData(cls, adata, train_indices, group_by):
+        return adata[train_indices,:].X, adata[train_indices,:].obs[group_by].cat.codes.to_numpy()
+
+    @classmethod
     def benchmarkerFunctional(
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
+        batch_size,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
     ):
         """
         Class function that initializes, trains, and returns markers for the provided data with the specific params
         args:
+            cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
         """
         if not k:
             k = train_kwargs['k']
@@ -164,7 +177,7 @@ class RankCorrWrapper(Rocks, BenchmarkableModel):
             train_kwargs = { **train_kwargs } #copy train_kwargs so later iterations have 'k'
             train_kwargs.pop('k')
 
-        X_train, y_train, _, _ = cls.prepareData(X, y, np.concatenate([train_indices, val_indices]), [])
+        X_train, y_train = cls.prepareData(adata, np.concatenate([train_indices, val_indices]), group_by)
         model = cls(X_train, y_train, **create_kwargs)
         markers = model.CSrankMarkers(**train_kwargs)
 
@@ -324,6 +337,7 @@ class SmashPyWrapper(smashpy, AnnDataModel):
         train_kwargs,
         adata,
         group_by,
+        batch_size,
         train_indices,
         val_indices,
         k=None,
@@ -338,10 +352,9 @@ class SmashPyWrapper(smashpy, AnnDataModel):
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
             adata (AnnData object): input and label data
             group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
         returns:
             (np.array) the selected k markers
@@ -385,12 +398,27 @@ class SmashPyWrapper(smashpy, AnnDataModel):
 class ScanpyRankGenes(AnnDataModel):
 
     @classmethod
+    def prepareData(cls, adata, train_indices, val_indices, group_by):
+        """
+        Sorts X and y data into train and val sets based on the provided indices
+        args:
+            adata (AnnData object): the data, including input and labels
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            layer (string): 
+        """
+        train_adata = adata[np.concatenate([train_indices, val_indices]),:]
+        train_adata.obs[group_by + '_codes'] = pd.Categorical(train_adata.obs[group_by].cat.codes)
+        return train_adata
+
+    @classmethod
     def benchmarkerFunctional(
         cls,
         create_kwargs,
         train_kwargs,
         adata,
         group_by,
+        batch_size,
         train_indices,
         val_indices,
         k=None,
@@ -403,10 +431,9 @@ class ScanpyRankGenes(AnnDataModel):
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
             adata (AnnData object): input and label data
             group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
         returns:
             (np.array) the selected k markers
@@ -418,7 +445,7 @@ class ScanpyRankGenes(AnnDataModel):
         if k is None:
             k = train_kwargs['k']
 
-        adata = cls.prepareData(adata, train_indices, val_indices)
+        adata = cls.prepareData(adata, train_indices, val_indices, group_by)
 
         # First, run rank_genes_groups with a high enough n_genes that we find >= k unique genes
         unique_names = np.array([])
@@ -428,14 +455,14 @@ class ScanpyRankGenes(AnnDataModel):
 
             adata_with_markers = sc.tl.rank_genes_groups(
                 adata, 
-                group_by, 
+                group_by + '_codes', 
                 n_genes=n_genes, 
                 method=method,
                 tie_correct=tie_correct,
                 copy=True,
             )
-            names = np.array(list(it.chain(*adata_with_markers.uns['rank_genes_groups']['names'])), dtype=int)
-            unique_names = np.unique(names)
+            names = list(it.chain(*adata_with_markers.uns['rank_genes_groups']['names']))
+            unique_names = np.unique(np.array([adata_with_markers.to_df().columns.get_loc(name) for name in names], dtype=int))
             multiplier *= 2
 
         # add the genes by row until it would put us over budget k, at which point add ones with
@@ -443,7 +470,8 @@ class ScanpyRankGenes(AnnDataModel):
         genes = np.array([], dtype=int)
         i = 0
         while len(genes) < k:
-            gene_row = np.array(list(adata_with_markers.uns['rank_genes_groups']['names'][i]), dtype=int)
+            gene_row_names = list(adata_with_markers.uns['rank_genes_groups']['names'][i])
+            gene_row = np.array([adata_with_markers.to_df().columns.get_loc(name) for name in gene_row_names], dtype=int)
             genes_added = np.unique(np.concatenate([genes, gene_row]))
             if len(genes_added) <= k:
                 genes = genes_added
@@ -470,6 +498,7 @@ class COSGWrapper(AnnDataModel):
         train_kwargs,
         adata,
         group_by,
+        batch_size,
         train_indices,
         val_indices,
         k=None,
@@ -482,10 +511,9 @@ class COSGWrapper(AnnDataModel):
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
             adata (AnnData object): input and label data
             group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
         returns:
             (np.array) the selected k markers
@@ -508,15 +536,16 @@ class COSGWrapper(AnnDataModel):
                 n_genes_user=n_genes, 
                 key_added='cosg',
             )
-            names = np.array(list(it.chain(*train_adata.uns['cosg']['names'])), dtype=int)
-            unique_names = np.unique(names)
+            names = list(it.chain(*train_adata.uns['cosg']['names']))
+            unique_names = np.unique(np.array([train_adata.to_df().columns.get_loc(name) for name in names], dtype=int))
             multiplier *= 2
 
         # add the genes by row until it would put us over budget k, at which point add ones with highest scores
         genes = np.array([], dtype=int)
         i = 0
         while len(genes) < k:
-            gene_row = np.array(list(train_adata.uns['cosg']['names'][i]), dtype=int)
+            gene_row_names = list(train_adata.uns['cosg']['names'][i])
+            gene_row = np.array([train_adata.to_df().columns.get_loc(name) for name in gene_row_names], dtype=int)
             genes_added = np.unique(np.concatenate([genes, gene_row]))
             if len(genes_added) <= k:
                 genes = genes_added
@@ -547,8 +576,13 @@ class PersistWrapper(BenchmarkableModel):
             val_indices (array-like): the indices to be used as the validation set
             group_by (string): the obs ouput the smashpy looks to
         """
-        adata.layers['bin'] = (adata.X > 0).astype(np.float32)
-        # adata.layers['bin'] = (adata.layers['counts'] > 0).astype(np.float32)
+        try:
+            adata.layers['bin'] = (adata.layers['counts'] > 0).astype(np.float32)
+        except KeyError:
+            raise Exception(
+                'PersistWrapper::prepareData requires "counts" layer data to binarize.',
+            )
+
         return super(PersistWrapper, cls).prepareData(adata, train_indices, val_indices, group_by, layer='bin')
 
     @classmethod
@@ -558,6 +592,7 @@ class PersistWrapper(BenchmarkableModel):
         train_kwargs,
         adata,
         group_by,
+        batch_size,
         train_indices,
         val_indices,
         k=None,
@@ -570,22 +605,24 @@ class PersistWrapper(BenchmarkableModel):
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
             adata (AnnData object): input and label data
             group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
         returns:
             (np.array) the selected k markers
         """
+        lam_init = None
+        if not create_kwargs['supervised']: # for unsupervised, use normalized and log transformed
+            group_by = None
+            lam_init = 0.01 # seems like you generally need larger values for unsupervised
+
         X_train, y_train, X_val, y_val, adata = cls.prepareData(adata, train_indices, val_indices, group_by)
 
         if k is None:
             k = train_kwargs['k']
         
         # Initialize the dataset for PERSIST
-        # Note: Here, data_train.layers['bin'] is a sparse array
-        # data_train.layers['bin'].A converts it to a dense array
         train_dataset = persist.ExpressionDataset(X_train, y_train)
         val_dataset = persist.ExpressionDataset(X_val, y_val)
 
@@ -602,7 +639,7 @@ class PersistWrapper(BenchmarkableModel):
 
         # Coarse removal of genes. This can fail, so if it fails to find after 5 tries, just do the select step
         try:
-            selector.eliminate(target=k*10, max_nepochs=250, tol=0.4, max_trials=5)
+            selector.eliminate(target=k*10, lam_init=lam_init, max_nepochs=250, tol=0.4, max_trials=5)
         except ValueError:
             pass
 

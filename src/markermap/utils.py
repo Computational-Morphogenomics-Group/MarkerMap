@@ -2,6 +2,7 @@ import gc
 import numpy as np
 import pandas as pd
 from collections import defaultdict
+import time
 
 import torch
 from torch import nn
@@ -176,7 +177,7 @@ def recon_model_metrics(train_x, test_x, markers, model=None):
     test_recon_x = reg.predict(markers_test_x)
 
     l2_loss = np.mean((test_x - test_recon_x)**2) 
-    l1_loss = np.abs(test_x - test_recon_x)
+    l1_loss = np.mean(np.abs(test_x - test_recon_x))
     # divide by num cells and num genes so we can compare across datasets
 
     return l2_loss, l1_loss
@@ -269,11 +270,15 @@ def benchmark(
     if (benchmark == 'label_error') and (eval_type == 'reconstruct'):
         print(f'WARNING benchmark: benchmark={benchmark} with eval_type={eval_type} doesn\'t have label error')
 
-    results = { 'misclass': {}, 'f1': {} } if (eval_type == 'classify') else { 'l2': {}, 'l1': {} }
+    if eval_type == 'classify':
+        results = { 'misclass': {}, 'f1': {}, 'time': {} }
+    else: # reconstruct
+        results = { 'l2': {}, 'l1': {}, 'time': {} }
+
     for i in range(num_times):
         train_indices, val_indices, test_indices = split_data(
             adata.X,
-            adata.obs['annotation'],
+            adata.obs[group_by],
             [train_size, val_size, 1 - train_size - val_size],
             min_groups=min_groups,
         )
@@ -282,6 +287,7 @@ def benchmark(
         adata_test = adata[test_indices,:]
 
         for model_label, model_functional in models.items():
+            print(i, model_label)
 
             model_results = defaultdict(lambda: [])
             for val in benchmark_range:
@@ -297,13 +303,16 @@ def benchmark(
                     model_group_by = 'mislabelled_annotation'
                     classifier_train_group_by = group_by
 
+                start_time = time.time_ns()
                 markers = model_functional(
                     adata,
                     model_group_by,
+                    batch_size,
                     train_indices,
                     val_indices,
                     k=val,
                 )
+                model_results['time'].append(time.time_ns() - start_time)
 
                 if (eval_type == 'classify'):
                     model_misclass, test_rep, _ = new_model_metrics(
@@ -572,12 +581,6 @@ def get_zeisel(file_path, names_key='names0'):
     adata = sc.read_h5ad(file_path)
     adata.obs['annotation'] = adata.obs[names_key]
     adata = adata[adata.obs['annotation'] != '(none)'] # if its names1, there are some unknown cells
-
-    labels = adata.obs['annotation'].values
-    encoder = LabelEncoder()
-    encoder.fit(labels)
-    y = encoder.transform(labels)
-    adata.obs['annotation'] = y
 
     return adata
 

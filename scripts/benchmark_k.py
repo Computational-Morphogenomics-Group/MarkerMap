@@ -24,7 +24,8 @@ LASSONET = 'LassoNet'
 RANK_CORR = 'RankCorr'
 SCANPY = 'Scanpy Rank Genes'
 COSG = 'COSG'
-PERSIST = 'PERSIST'
+UNSUP_PERSIST = 'Unsupervised PERSIST'
+SUP_PERSIST = 'Supervised PERSIST'
 
 def handleArgs(argv):
   data_name_options = ['zeisel', 'zeisel_big', 'paul', 'cite_seq', 'mouse_brain', 'mouse_brain_big']
@@ -291,24 +292,25 @@ l1_vae = VAE_l1_diag.getBenchmarker(
 
 results, benchmark_mode, benchmark_range = benchmark(
   {
-    # UNSUP_MM: unsupervised_mm,
-    # SUP_MM: supervised_mm,
-    # MIXED_MM: mixed_mm,
-    # BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
-    # LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
-    # CONCRETE_VAE: concrete_vae,
-    # GLOBAL_GATE: global_gate,
-    # SMASH_RF: smash_rf,
-    # # SMASH_DNN: smash_dnn,
-    # # L1_VAE: l1_vae,
-    # RANK_CORR: RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),
-    # SCANPY: ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
-    # SCANPY + ' overestim_var': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 't-test_overestim_var' }),
-    # SCANPY + ' wilcoxon': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon' }),
-    # SCANPY + ' wilcoxon tie': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
-    # # SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
-    # COSG: COSGWrapper.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
-    PERSIST: PersistWrapper.getBenchmarker(train_kwargs = { 'k': k }),
+    UNSUP_MM: unsupervised_mm,
+    SUP_MM: supervised_mm,
+    MIXED_MM: mixed_mm,
+    BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
+    LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
+    CONCRETE_VAE: concrete_vae,
+    GLOBAL_GATE: global_gate,
+    SMASH_RF: smash_rf,
+    # SMASH_DNN: smash_dnn,
+    # L1_VAE: l1_vae,
+    RANK_CORR: RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),
+    SCANPY: ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
+    SCANPY + ' overestim_var': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 't-test_overestim_var' }),
+    SCANPY + ' wilcoxon': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon' }),
+    SCANPY + ' wilcoxon tie': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
+    # SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
+    COSG: COSGWrapper.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
+    SUP_PERSIST: PersistWrapper.getBenchmarker(create_kwargs = { 'supervised': True }, train_kwargs = { 'k': k }),
+    UNSUP_PERSIST: PersistWrapper.getBenchmarker(create_kwargs = { 'supervised': False }, train_kwargs = { 'k': k }),
   },
   num_times,
   adata,
