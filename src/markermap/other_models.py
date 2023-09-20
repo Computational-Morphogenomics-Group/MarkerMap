@@ -32,12 +32,13 @@ class BenchmarkableModel():
     @classmethod
     def prepareData(cls, adata, train_indices, val_indices, group_by=None, layer=None):
         """
-        Sorts X and y data into train and val sets based on the provided indices
+        Splits adata into train data and validation data based on provided indices. 
         args:
             adata (AnnData object): the data, including input and labels
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            layer (string): 
+            group_by (string): key for where the label data is in .obs, or None to use X data
+            layer (string): key for where the input data is in .layers, or None to use X data
         """
         if layer is None:
             X_train = adata[train_indices,:].X
@@ -141,6 +142,13 @@ class RankCorrWrapper(Rocks, BenchmarkableModel):
 
     @classmethod
     def prepareData(cls, adata, train_indices, group_by):
+        """
+        Splits adata into input data and label data for the train provided indices. 
+        args:
+            adata (AnnData object): the data, including input and labels
+            train_indices (array-like): the indices to be used as the training set
+            group_by (string): key for where the label data is in .obs
+        """
         return adata[train_indices,:].X, adata[train_indices,:].obs[group_by].cat.codes.to_numpy()
 
     @classmethod
@@ -203,12 +211,11 @@ class AnnDataModel(BenchmarkableModel):
     @classmethod
     def prepareData(cls, adata, train_indices, val_indices):
         """
-        Sorts X and y data into train and val sets based on the provided indices
+        Restricts adata to one block with all the train and val indices.
         args:
             adata (AnnData object): the data, including input and labels
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            layer (string): 
         """
         return adata[np.concatenate([train_indices, val_indices]),:]
 
@@ -400,16 +407,16 @@ class ScanpyRankGenes(AnnDataModel):
     @classmethod
     def prepareData(cls, adata, train_indices, val_indices, group_by):
         """
-        Sorts X and y data into train and val sets based on the provided indices
+        Reduces adata to those with train_indices and val_indices
+        Splits adata into train data and validation data based on provided indices. 
         args:
             adata (AnnData object): the data, including input and labels
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            layer (string): 
+            group_by (string): key for where the label data is in .obs
         """
-        train_adata = adata[np.concatenate([train_indices, val_indices]),:]
-        train_adata.obs[group_by + '_codes'] = pd.Categorical(train_adata.obs[group_by].cat.codes)
-        return train_adata
+        adata.obs[group_by + '_codes'] = pd.Categorical(adata.obs[group_by].cat.codes)
+        return super().prepareData(adata, train_indices, val_indices)
 
     @classmethod
     def benchmarkerFunctional(
@@ -568,13 +575,13 @@ class PersistWrapper(BenchmarkableModel):
     @classmethod
     def prepareData(cls, adata, train_indices, val_indices, group_by):
         """
-        Since SmashPy requires data structured as AnnData, recreate it from X and y
+        Add the binarized counts data to adata, then splits adata into train data and validation 
+        data based on provided indices. 
         args:
-            X (np.array): input data, counts of various proteins
-            y (np.array): output data, what type of cell it is
+            adata (AnnData object): the data, including input and labels
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            group_by (string): the obs ouput the smashpy looks to
+            group_by (string): key for where the label data is in .obs, or None to use X data
         """
         try:
             adata.layers['bin'] = (adata.layers['counts'] > 0).astype(np.float32)
@@ -639,7 +646,6 @@ class PersistWrapper(BenchmarkableModel):
         
         if target < (0.5*X_train.shape[1]): # only try this if we are eliminating at least half the cells
             try:
-                # selector.eliminate(target=k*10, max_nepochs=250)
                 selector.eliminate(target=k*10, max_nepochs=250, tol=0.49)
             except ValueError:
                 pass
