@@ -54,6 +54,7 @@ def handleArgs(argv):
     default='classify',
   )
   parser.add_argument('--single_val', help='use when you don\'t want to benchmark on a range', type=int, default=None)
+  parser.add_argument('--seed', help='random seed', default=None, type=int)
 
   args = parser.parse_args()
 
@@ -68,6 +69,7 @@ def handleArgs(argv):
     args.data_dir,
     args.eval_type,
     args.single_val,
+    args.seed,
   )
 
 # Main
@@ -82,6 +84,7 @@ def handleArgs(argv):
   data_dir,
   eval_type,
   single_val,
+  seed,
 ) = handleArgs(sys.argv)
 
 if eval_model is None:
@@ -140,6 +143,10 @@ elif data_name =='mouse_brain_big':
 
 num_classes = len(adata.obs['annotation'].unique())
 
+if seed is not None:
+  np.random.seed(seed)
+else:
+  print('WARNING! If you don\'t set a seed, smashpy will set your seed to 42 ON PACKAGE IMPORT.')
 # The smashpy methods set global seeds that mess with sampling. These seeds are used
 # to stop those methods from using the same global seed over and over.
 random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length = len(benchmark_range) * num_times * 5)
