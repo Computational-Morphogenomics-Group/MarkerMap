@@ -612,10 +612,11 @@ class PersistWrapper(BenchmarkableModel):
         returns:
             (np.array) the selected k markers
         """
-        lam_init = None
-        if not create_kwargs['supervised']: # for unsupervised, use normalized and log transformed
-            group_by = None
-            lam_init = 0.01 # seems like you generally need larger values for unsupervised
+        if create_kwargs['supervised']:
+            loss_fn = torch.nn.CrossEntropyLoss()
+        else: #unsupervised
+            group_by = None # use normalized and log transformed data as the reconstruction target
+            loss_fn = persist.HurdleLoss()
 
         X_train, y_train, X_val, y_val, adata = cls.prepareData(adata, train_indices, val_indices, group_by)
 
@@ -630,18 +631,18 @@ class PersistWrapper(BenchmarkableModel):
         device = torch.device(torch.cuda.current_device() if torch.cuda.is_available() else 'cpu')
 
         # Set up the PERSIST selector
-        selector = persist.PERSIST(
-            train_dataset, 
-            val_dataset, 
-            loss_fn=torch.nn.CrossEntropyLoss(), 
-            device=device,
-        )
+        selector = persist.PERSIST(train_dataset, val_dataset, loss_fn=loss_fn, device=device)
 
-        # Coarse removal of genes. This can fail, so if it fails to find after 5 tries, just do the select step
-        try:
-            selector.eliminate(target=k*10, lam_init=lam_init, max_nepochs=250, tol=0.4, max_trials=5)
-        except ValueError:
-            pass
+        # Coarse removal of genes. This can fail, so if it fails to find after 10 tries, just do the select step
+        # We also use the max allowed tolerance to hopeful help with this step
+        target = k * 10
+        
+        if target < (0.5*X_train.shape[1]): # only try this if we are eliminating at least half the cells
+            try:
+                # selector.eliminate(target=k*10, max_nepochs=250)
+                selector.eliminate(target=k*10, max_nepochs=250, tol=0.49)
+            except ValueError:
+                pass
 
         markers, _ = selector.select(num_genes=k, max_nepochs=250)
         return markers

@@ -303,7 +303,7 @@ def benchmark(
                     model_group_by = 'mislabelled_annotation'
                     classifier_train_group_by = group_by
 
-                start_time = time.time_ns()
+                start_time = time.time()
                 markers = model_functional(
                     adata,
                     model_group_by,
@@ -312,7 +312,7 @@ def benchmark(
                     val_indices,
                     k=val,
                 )
-                model_results['time'].append(time.time_ns() - start_time)
+                model_results['time'].append(time.time() - start_time)
 
                 if (eval_type == 'classify'):
                     model_misclass, test_rep, _ = new_model_metrics(
