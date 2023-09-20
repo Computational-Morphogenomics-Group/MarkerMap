@@ -647,7 +647,12 @@ class PersistWrapper(BenchmarkableModel):
         if train_kwargs['eliminate_step'] and target < (0.5*X_train.shape[1]): 
             max_trials = train_kwargs['max_trials'] if 'max_trials' in train_kwargs else 10 # method default
             try:
-                selector.eliminate(target=k*10, max_nepochs=250, tol=0.49, max_trials=max_trials)
+                selector.eliminate(
+                    target=k*10, 
+                    max_nepochs=train_kwargs['eliminate_nepochs'], 
+                    tol=0.49, 
+                    max_trials=max_trials,
+                )
             except ValueError:
                 pass
 
