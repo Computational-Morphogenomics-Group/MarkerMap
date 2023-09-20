@@ -53,7 +53,7 @@ def handleArgs(argv):
     choices=eval_type_options, 
     default='classify',
   )
-  parser.add_argument('--single_val', help='use when you don\'t want to benchmark on a range', type=int, default=None)
+  parser.add_argument('--single_val', help='use when you don\'t want to benchmark on a range', type=str, default=None)
   parser.add_argument('--seed', help='random seed', default=None, type=int)
 
   args = parser.parse_args()
@@ -111,7 +111,10 @@ if single_val is None:
   elif benchmark_mode == 'label_error' or benchmark_mode == 'label_error_markers_only':
     benchmark_range = [0.1, 0.2, 0.5, 0.75, 1]
 else:
-  benchmark_range = [single_val]
+  if benchmark_mode == 'k':
+    benchmark_range = [int(single_val)]
+  elif benchmark_mode == 'label_error' or benchmark_mode == 'label_error_markers_only':
+    benchmark_range = [float(single_val)]
 
 max_epochs = 100
 
@@ -297,6 +300,16 @@ l1_vae = VAE_l1_diag.getBenchmarker(
   },
 )
 
+unsup_persist = PersistWrapper.getBenchmarker(
+  create_kwargs = { 'supervised': False }, 
+  train_kwargs = { 'k': k, 'eliminate_step': True },
+)
+
+sup_persist = PersistWrapper.getBenchmarker(
+  create_kwargs = { 'supervised': True }, 
+  train_kwargs = { 'k': k, 'eliminate_step': True },
+)
+
 results, benchmark_mode, benchmark_range = benchmark(
   {
     UNSUP_MM: unsupervised_mm,
@@ -316,8 +329,8 @@ results, benchmark_mode, benchmark_range = benchmark(
     SCANPY + ' wilcoxon tie': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
     # SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
     COSG: COSGWrapper.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
-    SUP_PERSIST: PersistWrapper.getBenchmarker(create_kwargs = { 'supervised': True }, train_kwargs = { 'k': k }),
-    UNSUP_PERSIST: PersistWrapper.getBenchmarker(create_kwargs = { 'supervised': False }, train_kwargs = { 'k': k }),
+    UNSUP_PERSIST: unsup_persist,
+    SUP_PERSIST: sup_persist,
   },
   num_times,
   adata,

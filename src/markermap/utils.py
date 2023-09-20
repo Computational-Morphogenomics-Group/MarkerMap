@@ -191,7 +191,7 @@ def model_variances(path, tries):
         weight_f1_arr.append(results[1]['weighted avg']['f1-score'])
     return np.mean(misclass_arr), np.mean(weight_f1_arr), np.std(misclass_arr), np.std(weight_f1_arr)
 
-def mislabel_points(adata, mislabel_percent, group_by, eligible_indices=None):
+def mislabel_points(adata, group_by, mislabel_percent, eligible_indices=None):
     assert mislabel_percent <= 1.0
     assert mislabel_percent >= 0.0
 
@@ -212,7 +212,7 @@ def mislabel_points(adata, mislabel_percent, group_by, eligible_indices=None):
     y_err = y.copy()
     y_err[mislabelled_indices] = mislabels
 
-    adata.obs['mislabelled_annotations'] = y_err #will this even work
+    adata.obs['mislabelled_annotation'] = y_err #will this even work
 
     return adata
 
@@ -310,7 +310,7 @@ def benchmark(
                     batch_size,
                     train_indices,
                     val_indices,
-                    k=val,
+                    k=val if benchmark == 'k' else None,
                 )
                 model_results['time'].append(time.time() - start_time)
 

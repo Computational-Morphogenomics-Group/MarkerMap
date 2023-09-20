@@ -644,9 +644,10 @@ class PersistWrapper(BenchmarkableModel):
         # We also use the max allowed tolerance to hopeful help with this step
         target = k * 10
         
-        if target < (0.5*X_train.shape[1]): # only try this if we are eliminating at least half the cells
+        if train_kwargs['eliminate_step'] and target < (0.5*X_train.shape[1]): 
+            max_trials = train_kwargs['max_trials'] if 'max_trials' in train_kwargs else 10 # method default
             try:
-                selector.eliminate(target=k*10, max_nepochs=250, tol=0.49)
+                selector.eliminate(target=k*10, max_nepochs=250, tol=0.49, max_trials=max_trials)
             except ValueError:
                 pass
 

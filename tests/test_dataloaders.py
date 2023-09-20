@@ -39,21 +39,21 @@ class TestDataloaders:
     # check that sizes match for even splits
     X = np.arange(20).reshape((10,2))
     y = np.concatenate([np.ones(5), np.zeros(5)])
-    _, (train_indices, test_indices) = split_data(X, y, [0.7, 0.3])
+    train_indices, test_indices = split_data(X, y, [0.7, 0.3])
     assert len(train_indices) == 7
     assert len(test_indices) == 3
 
     # check that sizes match for uneven splits
     X = np.arange(20).reshape((10,2))
     y = np.concatenate([np.ones(5), np.zeros(5)])
-    _, (train_indices, test_indices) = split_data(X, y, [0.65, 0.35])
+    train_indices, test_indices = split_data(X, y, [0.65, 0.35])
     assert len(train_indices) == 6
     assert len(test_indices) == 4
 
     # check that sizes match for uneven splits
     X = np.arange(20).reshape((10,2))
     y = np.concatenate([np.ones(5), np.zeros(5)])
-    _, (train_indices, test_indices) = split_data(X, y, [0.65, 0.35])
+    train_indices, test_indices = split_data(X, y, [0.65, 0.35])
     assert len(train_indices) == 6
     assert len(test_indices) == 4
 
@@ -61,25 +61,25 @@ class TestDataloaders:
     # check that sizes match when using min groups
     X = np.arange(20).reshape((10,2))
     y = np.concatenate([np.ones(5), np.zeros(5)])
-    _, (train_indices, test_indices) = split_data(X, y, [0.7, 0.3], min_groups=[1,1])
+    train_indices, test_indices = split_data(X, y, [0.7, 0.3], min_groups=[1,1])
     assert np.sum(y[train_indices] == 0) > 1 and np.sum(y[train_indices] == 1) > 1
 
     # check that min_groups don't make a set too large
     X = np.arange(20).reshape((10,2))
     y = np.arange(10)
     with pytest.raises(AssertionError):
-      _, (train_indices, test_indices) = split_data(X, y, [0.7, 0.3], min_groups=[1,1])
+      train_indices, test_indices = split_data(X, y, [0.7, 0.3], min_groups=[1,1])
 
     # check that min_group is achievable
     X = np.arange(20).reshape((10,2))
     y = np.concatenate([np.ones(1), np.zeros(9)])
     with pytest.raises(AssertionError):
-      _, (train_indices, test_indices) = split_data(X, y, [0.7, 0.3], min_groups=[1,1])
+      train_indices, test_indices = split_data(X, y, [0.7, 0.3], min_groups=[1,1])
 
     # Check that min_groups is calculated first to ensure that they are all satisfied
     X = np.arange(20).reshape((10,2))
     y = np.concatenate([np.ones(2), np.zeros(8)])
-    _, (train_indices, test_indices) = split_data(X, y, [0.7, 0.3], min_groups=[1,1])
+    train_indices, test_indices = split_data(X, y, [0.7, 0.3], min_groups=[1,1])
     assert np.sum(y[train_indices] == 0) == 6
     assert np.sum(y[train_indices] == 1) == 1
     assert np.sum(y[test_indices] == 0) == 2
