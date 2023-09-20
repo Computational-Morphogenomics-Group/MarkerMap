@@ -326,7 +326,20 @@ class VAE(pl.LightningModule, other_models.BenchmarkableModel):
         return { 
             'optimizer': torch.optim.Adam(self.parameters(), lr = self.lr),
         }
+    
+    @classmethod 
+    def prepareData(cls, adata, train_indices, val_indices, group_by, layer, batch_size):
+        X_train, y_train, X_val, y_val, adata = super().prepareData(
+            adata, 
+            train_indices, 
+            val_indices, 
+            group_by, 
+            layer,
+        )
 
+        train_dataloader = utils.get_dataloader(X_train, y_train, batch_size, shuffle=True)
+        val_dataloader = utils.get_dataloader(X_val, y_val, batch_size, shuffle=False)
+        return train_dataloader, val_dataloader
 
 class VAE_l1_diag(VAE):
     def __init__(
@@ -394,12 +407,11 @@ class VAE_l1_diag(VAE):
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
+        batch_size,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
     ):
         """
@@ -408,14 +420,23 @@ class VAE_l1_diag(VAE):
             cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
         """
+        train_dataloader, val_dataloader = cls.prepareData(
+            adata, 
+            train_indices, 
+            val_indices, 
+            group_by, 
+            None, #layer, just use adata.X
+            batch_size=batch_size,
+        )
         if not k:
             k = train_kwargs['k']
 
@@ -423,7 +444,7 @@ class VAE_l1_diag(VAE):
             train_kwargs = { **train_kwargs } #copy train_kwargs so later iterations have 'k'
             train_kwargs.pop('k')
 
-        feature_std = torch.tensor(X).std(dim = 0)
+        feature_std = torch.tensor(adata.X).std(dim = 0)
         model = cls(**create_kwargs)
         train_model(model, train_dataloader, val_dataloader, **train_kwargs)
         return model.markers(feature_std = feature_std.to(model.device), k = k).clone().cpu().detach().numpy()
@@ -697,12 +718,11 @@ class VAE_Gumbel_GlobalGate(VAE):
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
+        batch_size,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
     ):
         """
@@ -711,14 +731,23 @@ class VAE_Gumbel_GlobalGate(VAE):
             cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
         """
+        train_dataloader, val_dataloader = cls.prepareData(
+            adata, 
+            train_indices, 
+            val_indices, 
+            group_by, 
+            None, #layer, just use adata.X
+            batch_size=batch_size,
+        )
         model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
         train_model(model, train_dataloader, val_dataloader, **train_kwargs)
         return model.markers().clone().cpu().detach().numpy()
@@ -827,12 +856,11 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
+        batch_size,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
     ):
         """
@@ -841,14 +869,23 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
             cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
         """
+        train_dataloader, val_dataloader = cls.prepareData(
+            adata, 
+            train_indices, 
+            val_indices, 
+            group_by, 
+            None, #layer, just use adata.X
+            batch_size=batch_size,
+        )
         model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
         train_model(model, train_dataloader, val_dataloader, **train_kwargs)
         return model.markers().clone().cpu().detach().numpy()
@@ -1153,12 +1190,11 @@ class ConcreteVAE_NMSL(VAE):
         cls,
         create_kwargs,
         train_kwargs,
-        X,
-        y,
+        adata,
+        group_by,
+        batch_size,
         train_indices,
         val_indices,
-        train_dataloader,
-        val_dataloader,
         k=None,
     ):
         """
@@ -1167,14 +1203,23 @@ class ConcreteVAE_NMSL(VAE):
             cls (string): The current, derived class name, used for calling derived class functions
             create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
             train_args (dict): ALL args used by the train model step as a keyword arg dictionary
-            X (np.array): the full set of training data input X
-            y (np.array): the full set of training data output y
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
             train_indices (array-like): the indices to be used as the training set
             val_indices (array-like): the indices to be used as the validation set
-            train_dataloader (pytorch dataloader): dataloader for training data set
-            val_dataloader (pytorch dataloader): dataloader for validation data set
             k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
         """
+        train_dataloader, val_dataloader = cls.prepareData(
+            adata, 
+            train_indices, 
+            val_indices, 
+            group_by, 
+            None, #layer, just use adata.X
+            batch_size=batch_size,
+        )
         model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
         train_model(model, train_dataloader, val_dataloader, **train_kwargs)
         return model.markers().clone().cpu().detach().numpy()

@@ -2,6 +2,7 @@ import gc
 import numpy as np
 import pandas as pd
 from collections import defaultdict
+import time
 
 import torch
 from torch import nn
@@ -166,11 +167,9 @@ def new_model_metrics(train_x, train_y, test_x, test_y, markers = None, model = 
     misclass_rate = 1 - accuracy_score(test_y, pred_y)
     return misclass_rate, test_rep, cm
 
-def recon_model_metrics(train_x, val_x, test_x, markers, model=None):
+def recon_model_metrics(train_x, test_x, markers, model=None):
     if model is None:
         model = LinearRegression()
-
-    train_x = np.concatenate([train_x, val_x], axis=0)
 
     markers_train_x = train_x[:, markers]
     markers_test_x = test_x[:, markers]
@@ -178,9 +177,10 @@ def recon_model_metrics(train_x, val_x, test_x, markers, model=None):
     test_recon_x = reg.predict(markers_test_x)
 
     l2_loss = np.mean((test_x - test_recon_x)**2) 
+    l1_loss = np.mean(np.abs(test_x - test_recon_x))
     # divide by num cells and num genes so we can compare across datasets
 
-    return l2_loss
+    return l2_loss, l1_loss
 
 def model_variances(path, tries):
     misclass_arr = []
@@ -191,9 +191,11 @@ def model_variances(path, tries):
         weight_f1_arr.append(results[1]['weighted avg']['f1-score'])
     return np.mean(misclass_arr), np.mean(weight_f1_arr), np.std(misclass_arr), np.std(weight_f1_arr)
 
-def mislabel_points(y, mislabel_percent, eligible_indices=None):
+def mislabel_points(adata, group_by, mislabel_percent, eligible_indices=None):
     assert mislabel_percent <= 1.0
     assert mislabel_percent >= 0.0
+
+    y = adata.obs[group_by]
 
     if eligible_indices is None:
         eligible_indices = np.array(range(len(y)))
@@ -210,14 +212,16 @@ def mislabel_points(y, mislabel_percent, eligible_indices=None):
     y_err = y.copy()
     y_err[mislabelled_indices] = mislabels
 
-    return y_err
+    adata.obs['mislabelled_annotation'] = y_err #will this even work
+
+    return adata
 
 def benchmark(
     models,
     num_times,
-    X,
-    y,
+    adata,
     benchmark,
+    group_by = 'annotation',
     train_size = 0.7,
     val_size = 0.1,
     batch_size = 64,
@@ -234,9 +238,9 @@ def benchmark(
         models (dict): maps model labels to a function that runs the model on the data and returns markers
             use model.getBenchmarker() to automatically generate those functions
         num_times (int): number of random data splits to run the model on
-        X (array): Input data
-        y (vector): Output labels
+        adata (AnnData object): input and label data
         benchmark (string): type of benchmarking to do, must be one of {'k', 'label_error', 'label_error_markers_only'}
+        group_by (string): string key for adata.obs[group_by] where the output labels live, defaults to annotation
         train_size (float): 0 to 1, fraction of data for train set, defaults to 0.7
         val_size (float): 0 to 1, fraction of data for validation set, defaults to 0.1
         batch_size (int): defaults to 64
@@ -266,83 +270,70 @@ def benchmark(
     if (benchmark == 'label_error') and (eval_type == 'reconstruct'):
         print(f'WARNING benchmark: benchmark={benchmark} with eval_type={eval_type} doesn\'t have label error')
 
-    results = { 'misclass': {}, 'f1': {} } if (eval_type == 'classify') else { 'l2': {} }
+    if eval_type == 'classify':
+        results = { 'misclass': {}, 'f1': {}, 'time': {} }
+    else: # reconstruct
+        results = { 'l2': {}, 'l1': {}, 'time': {} }
+
     for i in range(num_times):
-        (train_dataloader, val_dataloader, _), (train_indices, val_indices, test_indices) = split_data(
-            X,
-            y,
+        train_indices, val_indices, test_indices = split_data(
+            adata.X,
+            adata.obs[group_by],
             [train_size, val_size, 1 - train_size - val_size],
-            batch_size=batch_size,
             min_groups=min_groups,
         )
+        train_val_indices = np.concatenate([train_indices, val_indices])
 
-        X_test = X[test_indices,:]
-        y_test = y[test_indices]
+        adata_test = adata[test_indices,:]
 
         for model_label, model_functional in models.items():
+            print(i, model_label)
 
             model_results = defaultdict(lambda: [])
             for val in benchmark_range:
                 if benchmark == 'k':
-                    markers = model_functional(
-                        X,
-                        y,
-                        train_indices,
-                        val_indices,
-                        train_dataloader,
-                        val_dataloader,
-                        k=val,
-                    )
-                    classifier_y_train = y[np.concatenate([train_indices, val_indices])]
-                elif benchmark == 'label_error' or benchmark == 'label_error_markers_only':
-                    y_err = mislabel_points(y, val, np.concatenate([train_indices, val_indices]))
-                    train_err_dataloader = get_dataloader(
-                        X[train_indices, :],
-                        y_err[train_indices],
-                        batch_size=batch_size,
-                        shuffle=True,
-                    )
-                    val_err_dataloader = get_dataloader(
-                        X[val_indices, :],
-                        y_err[val_indices],
-                        batch_size=batch_size,
-                        shuffle=False,
-                    )
+                    model_group_by = group_by
+                    classifier_train_group_by = group_by
+                elif benchmark == 'label_error':
+                    adata = mislabel_points(adata, group_by, val, train_val_indices)
+                    model_group_by = 'mislabelled_annotation'
+                    classifier_train_group_by = 'mislabelled_annotation'
+                elif benchmark == 'label_error_markers_only':
+                    adata = mislabel_points(adata, group_by, val, train_val_indices)
+                    model_group_by = 'mislabelled_annotation'
+                    classifier_train_group_by = group_by
 
-                    markers = model_functional(
-                        X,
-                        y_err,
-                        train_indices,
-                        val_indices,
-                        train_err_dataloader,
-                        val_err_dataloader,
-                    )
-
-                    if benchmark == 'label_error':
-                        classifier_y_train = y_err[np.concatenate([train_indices, val_indices])]
-                    elif benchmark == 'label_error_markers_only':
-                        classifier_y_train = y[np.concatenate([train_indices, val_indices])]
+                start_time = time.time()
+                markers = model_functional(
+                    adata,
+                    model_group_by,
+                    batch_size,
+                    train_indices,
+                    val_indices,
+                    k=val if benchmark == 'k' else None,
+                )
+                model_results['time'].append(time.time() - start_time)
 
                 if (eval_type == 'classify'):
                     model_misclass, test_rep, _ = new_model_metrics(
-                        X[np.concatenate([train_indices, val_indices]), :],
-                        classifier_y_train,
-                        X_test,
-                        y_test,
+                        adata[train_val_indices, :].X,
+                        adata[train_val_indices, :].obs[classifier_train_group_by],
+                        adata_test.X,
+                        adata_test.obs[group_by],
                         markers = markers,
                         model=eval_model,
                     )
                     model_results['misclass'].append(model_misclass)
                     model_results['f1'].append(test_rep['weighted avg']['f1-score'])
                 elif (eval_type == 'reconstruct'):
-                    l2_error = recon_model_metrics(
-                        X[train_indices, :],
-                        X[val_indices, :],
-                        X_test,
+                    l2_error, l1_error = recon_model_metrics(
+                        adata[train_val_indices, :].X,
+                        adata_test.X,
                         markers,
                         eval_model,
                     )
                     model_results['l2'].append(l2_error)
+                    model_results['l1'].append(l1_error)
 
             for key,val in model_results.items():
                 val_ndarray = np.array(val).reshape((1,len(val)))
@@ -579,20 +570,6 @@ def process_data(X, Y, filter_data = False):
 
     return np.assarray(aData.X.copy()), Y
 
-def parse_adata(adata):
-    """
-    Split a scanpy adata into X and y, where y is adata.obs['annotation'] converted to numbers using LabelEncoder
-    Args:
-        adata (scanpy adata): The result of something like sc.read_h5ad(), must have .obs['annotation']
-    returns: tuple (X, y, encoder), X data, y as the encoded labels, and the encoder
-    """
-    X = adata.X.copy()
-    labels = adata.obs['annotation'].values
-    encoder = LabelEncoder()
-    encoder.fit(labels)
-    y = encoder.transform(labels)
-    return X, y, encoder
-
 def get_zeisel(file_path, names_key='names0'):
     """
     Get the zeisel data located a file path
@@ -602,11 +579,10 @@ def get_zeisel(file_path, names_key='names0'):
     returns: X data array, y transformed labels, encoder that transformed the labels
     """
     adata = sc.read_h5ad(file_path)
-    adata.obs['names']=adata.obs[names_key]
     adata.obs['annotation'] = adata.obs[names_key]
     adata = adata[adata.obs['annotation'] != '(none)'] # if its names1, there are some unknown cells
 
-    return parse_adata(adata)
+    return adata
 
 def log_and_normalize(X, recon_X=None):
   """
@@ -672,10 +648,10 @@ def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path, smashpy_prep
     for celltype in adata.obs['paul15_clusters'].tolist():
         annotation.append(dict_annotation[celltype])
 
-    adata.obs['annotation'] = annotation
+    adata.obs['annotation'] = pd.Categorical(annotation)
     adata.obs['annotation'] = adata.obs['annotation'].astype('category')
 
-    return parse_adata(adata)
+    return adata
 
 def get_citeseq(file_path):
     """
@@ -685,8 +661,8 @@ def get_citeseq(file_path):
     returns: X data array, y transformed labels, encoder that transformed the labels
     """
     adata = sc.read_h5ad(file_path)
-    adata.obs['annotation'] = adata.obs['names']
-    return parse_adata(adata)
+    adata.obs['annotation'] = adata.obs['names'].astype('category')
+    return adata
 
 def relabel_mouse_labels(label):
     if isinstance(label, str):
@@ -764,7 +740,7 @@ def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, smashpy_preproces
     """
     adata_snrna_raw = anndata.read_h5ad(mouse_brain_path)
     del adata_snrna_raw.raw
-    adata_snrna_raw = adata_snrna_raw
+    adata_snrna_raw.layers['counts'] = adata_snrna_raw.X # save the counts in a layer
     adata_snrna_raw.X = adata_snrna_raw.X.toarray()
     ## Cell type annotations
     labels = pd.read_csv(mouse_brain_labels_path, index_col=0)
@@ -822,7 +798,7 @@ def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, smashpy_preproces
         sc.pp.log1p(adata_snrna_raw)
         sc.pp.scale(adata_snrna_raw, max_value=10)
 
-    return parse_adata(adata_snrna_raw)
+    return adata_snrna_raw
 
 def get_dataloader(X, y, batch_size, shuffle, num_workers=0):
     return DataLoader(
@@ -887,8 +863,6 @@ def split_data(
     X, 
     y, 
     size_percents, 
-    batch_size=64, 
-    num_workers=0, 
     seed=None, 
     min_groups=None, 
 ):
@@ -900,7 +874,6 @@ def split_data(
         size_percents (list of floats): the percent sizes of sets of data. If two values are passed then
             two dataloaders and two sets of indices are returned. The size_percents list should add up to 1,
             but the last value is not used, the last set of data will just be the remaining data.
-        batch_size (int): defaults to 64
         num_workers (int): number of cores for multi-threading, defaults to 0 for no multi-threading
         seed (int): defaults to none, set to reproduce experiments with same train/val split
         min_groups (None or list of ints): if not none, should be a list of integers for each set of data.
@@ -908,7 +881,6 @@ def split_data(
     """
     assert np.sum(size_percents) <= 1
     assert len(X) == len(y)
-    assert batch_size > 1
     if min_groups is not None:
         assert len(size_percents) == len(min_groups)
 
@@ -944,7 +916,6 @@ def split_data(
     rng.shuffle(remaining_idxs) # shuffle in place the remaining indices array
 
     # Construct the set dataloaders and indices so that the percents match up, even with min_groups
-    dataloaders = []
     all_indices = []
     set_start = 0
     for i, (percent, min_group) in enumerate(zip(size_percents, min_groups)):
@@ -964,17 +935,11 @@ def split_data(
 
         assert len(indices_list[i]) == (min_group * len(groups)), f'{len(indices_list[i])} {min_group * len(groups)}'
 
-        set_x = X[set_indices, :]
-        set_y = y[set_indices]
-
-        # shuffle the first set, which will likely be the training set and we want to shuffle for batches
-        set_dataloader = get_dataloader(set_x, set_y, batch_size, shuffle=(i==0), num_workers=num_workers)
-        dataloaders.append(set_dataloader)
         all_indices.append(set_indices)
 
         set_start += set_len
 
-    return dataloaders, all_indices
+    return all_indices
 
 #TODO: extract functionality of this and " "_no_test to a helper function, code reuse
 def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, num_workers = 0, seed = None):

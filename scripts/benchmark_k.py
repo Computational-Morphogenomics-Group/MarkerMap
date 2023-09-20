@@ -6,7 +6,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression
 
-from markermap.other_models import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper, ScanpyRankGenes, COSGWrapper
+from markermap.other_models import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper, ScanpyRankGenes, COSGWrapper, PersistWrapper
 from markermap.vae_models import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
 from markermap.utils import benchmark, plot_benchmarks, get_citeseq, get_mouse_brain, get_paul, get_zeisel
 
@@ -24,6 +24,8 @@ LASSONET = 'LassoNet'
 RANK_CORR = 'RankCorr'
 SCANPY = 'Scanpy Rank Genes'
 COSG = 'COSG'
+UNSUP_PERSIST = 'Unsupervised PERSIST'
+SUP_PERSIST = 'Supervised PERSIST'
 
 def handleArgs(argv):
   data_name_options = ['zeisel', 'zeisel_big', 'paul', 'cite_seq', 'mouse_brain', 'mouse_brain_big']
@@ -51,7 +53,8 @@ def handleArgs(argv):
     choices=eval_type_options, 
     default='classify',
   )
-  parser.add_argument('--single_val', help='use when you don\'t want to benchmark on a range', type=int, default=None)
+  parser.add_argument('--single_val', help='use when you don\'t want to benchmark on a range', type=str, default=None)
+  parser.add_argument('--seed', help='random seed', default=None, type=int)
 
   args = parser.parse_args()
 
@@ -66,6 +69,7 @@ def handleArgs(argv):
     args.data_dir,
     args.eval_type,
     args.single_val,
+    args.seed,
   )
 
 # Main
@@ -80,6 +84,7 @@ def handleArgs(argv):
   data_dir,
   eval_type,
   single_val,
+  seed,
 ) = handleArgs(sys.argv)
 
 if eval_model is None:
@@ -106,7 +111,10 @@ if single_val is None:
   elif benchmark_mode == 'label_error' or benchmark_mode == 'label_error_markers_only':
     benchmark_range = [0.1, 0.2, 0.5, 0.75, 1]
 else:
-  benchmark_range = [single_val]
+  if benchmark_mode == 'k':
+    benchmark_range = [int(single_val)]
+  elif benchmark_mode == 'label_error' or benchmark_mode == 'label_error_markers_only':
+    benchmark_range = [float(single_val)]
 
 max_epochs = 100
 
@@ -114,35 +122,39 @@ max_epochs = 100
 precision=32
 
 if data_name == 'zeisel':
-  X, y, encoder = get_zeisel(data_dir + 'zeisel/Zeisel.h5ad')
+  adata = get_zeisel(data_dir + 'zeisel/Zeisel.h5ad')
 elif data_name == 'zeisel_big':
-  X, y, encoder = get_zeisel(data_dir + 'zeisel/Zeisel.h5ad', 'names1')
+  adata = get_zeisel(data_dir + 'zeisel/Zeisel.h5ad', 'names1')
 elif data_name == 'paul':
-  X, y, encoder = get_paul(
+  adata = get_paul(
     data_dir + 'paul15/house_keeping_genes_Mouse_bone_marrow.txt',
     data_dir + 'paul15/house_keeping_genes_Mouse_HSC.txt',
   )
 elif data_name == 'cite_seq':
-  X, y, encoder = get_citeseq(data_dir + 'cite_seq/CITEseq.h5ad')
+  adata = get_citeseq(data_dir + 'cite_seq/CITEseq.h5ad')
 elif data_name == 'mouse_brain':
-  X, y, encoder = get_mouse_brain(
+  adata = get_mouse_brain(
     data_dir + 'mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
     data_dir + 'mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
   )
 elif data_name =='mouse_brain_big':
-  X, y, encoder = get_mouse_brain(
+  adata = get_mouse_brain(
     data_dir + 'mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
     data_dir + 'mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
     relabel=False,
   )
 
-num_classes = len(np.unique(y))
+num_classes = len(adata.obs['annotation'].unique())
 
+if seed is not None:
+  np.random.seed(seed)
+else:
+  print('WARNING! If you don\'t set a seed, smashpy will set your seed to 42 ON PACKAGE IMPORT.')
 # The smashpy methods set global seeds that mess with sampling. These seeds are used
 # to stop those methods from using the same global seed over and over.
 random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length = len(benchmark_range) * num_times * 5)
 
-input_size = X.shape[1]
+input_size = adata.shape[1]
 
 # Declare models
 unsupervised_mm = MarkerMap.getBenchmarker(
@@ -288,6 +300,16 @@ l1_vae = VAE_l1_diag.getBenchmarker(
   },
 )
 
+unsup_persist = PersistWrapper.getBenchmarker(
+  create_kwargs = { 'supervised': False }, 
+  train_kwargs = { 'k': k, 'eliminate_step': True },
+)
+
+sup_persist = PersistWrapper.getBenchmarker(
+  create_kwargs = { 'supervised': True }, 
+  train_kwargs = { 'k': k, 'eliminate_step': True },
+)
+
 results, benchmark_mode, benchmark_range = benchmark(
   {
     UNSUP_MM: unsupervised_mm,
@@ -307,10 +329,11 @@ results, benchmark_mode, benchmark_range = benchmark(
     SCANPY + ' wilcoxon tie': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
     # SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
     COSG: COSGWrapper.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
+    UNSUP_PERSIST: unsup_persist,
+    SUP_PERSIST: sup_persist,
   },
   num_times,
-  X,
-  y,
+  adata,
   save_file=save_file,
   benchmark=benchmark_mode,
   benchmark_range=benchmark_range,
