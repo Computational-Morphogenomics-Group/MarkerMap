@@ -342,5 +342,5 @@ results, benchmark_mode, benchmark_range = benchmark(
   min_groups=[2,1,1],
 )
 
-plot_mode = 'accuracy' if eval_type == 'classify' else 'recon'
+plot_mode = 'accuracy' if eval_type == 'classify' else 'l2'
 plot_benchmarks(results, benchmark_mode, benchmark_range, mode=plot_mode, show_stdev=True, print_vals=True)

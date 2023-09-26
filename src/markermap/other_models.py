@@ -72,7 +72,6 @@ class RandomBaseline(BenchmarkableModel):
         train_indices,
         val_indices,
         k=None,
-        **kwargs,
     ):
         """
         Class function that initializes, trains, and returns markers for the provided data with the specific params
@@ -89,8 +88,10 @@ class RandomBaseline(BenchmarkableModel):
         returns:
             (np.array) the selected k markers
         """
-        all_kwargs = {**create_kwargs, **train_kwargs, **kwargs}
-        return np.random.permutation(range(adata.shape[1]))[:all_kwargs['k']]
+        if k is None:
+            k = {**create_kwargs, **train_kwargs }['k']
+
+        return np.random.permutation(range(adata.shape[1]))[:k]
 
 
 class LassoNetWrapper(LassoNetClassifier, BenchmarkableModel):
@@ -573,7 +574,7 @@ class COSGWrapper(AnnDataModel):
 class PersistWrapper(BenchmarkableModel):
 
     @classmethod
-    def prepareData(cls, adata, train_indices, val_indices, group_by):
+    def prepareData(cls, adata, train_indices, val_indices, group_by, layer='bin'):
         """
         Add the binarized counts data to adata, then splits adata into train data and validation 
         data based on provided indices. 
@@ -590,7 +591,7 @@ class PersistWrapper(BenchmarkableModel):
                 'PersistWrapper::prepareData requires "counts" layer data to binarize.',
             )
 
-        return super(PersistWrapper, cls).prepareData(adata, train_indices, val_indices, group_by, layer='bin')
+        return super(PersistWrapper, cls).prepareData(adata, train_indices, val_indices, group_by, layer=layer)
 
     @classmethod
     def benchmarkerFunctional(
@@ -625,7 +626,11 @@ class PersistWrapper(BenchmarkableModel):
             group_by = None # use normalized and log transformed data as the reconstruction target
             loss_fn = persist.HurdleLoss()
 
-        X_train, y_train, X_val, y_val, adata = cls.prepareData(adata, train_indices, val_indices, group_by)
+        layer = 'bin'
+        if 'use_bin' in create_kwargs:
+            layer = 'bin' if create_kwargs['use_bin'] else None
+
+        X_train, y_train, X_val, y_val, adata = cls.prepareData(adata, train_indices, val_indices, group_by, layer)
 
         if k is None:
             k = train_kwargs['k']

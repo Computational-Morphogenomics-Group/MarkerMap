@@ -473,7 +473,7 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
         show_stdev (bool): whether to show fill_between range of 1 stdev over the num_runs, defaults to false
         print_vals (bool): print the vals that are displayed in the plot
     """
-    mode_options = {'misclass', 'accuracy', 'f1', 'recon'}
+    mode_options = {'misclass', 'accuracy', 'f1', 'l2', 'l1'}
     if mode not in mode_options:
         raise Exception(f'plot_benchmarks: Possible choices of mode are {mode_options}')
 
@@ -482,12 +482,10 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
     i = 0
     num_runs = 1
 
-    if mode == 'misclass' or mode == 'accuracy':
+    if mode == 'accuracy':
         results = results['misclass']
-    elif mode == 'f1':
-        results = results['f1']
-    elif mode == 'recon':
-        results = results['l2']
+    else:
+        results = results[mode]
 
     for label, result in results.items():
         if mode == 'accuracy':
@@ -582,6 +580,17 @@ def get_zeisel(file_path, names_key='names0'):
     adata.obs['annotation'] = adata.obs[names_key]
     adata = adata[adata.obs['annotation'] != '(none)'] # if its names1, there are some unknown cells
 
+    std = np.expand_dims(adata.var['std'].to_numpy(), axis=0)
+    mean = np.expand_dims(adata.var['mean'].to_numpy(), axis=0)
+    X = adata.X.copy()
+
+    X = (X * std) + mean
+    X[X < 1e-5] = 0.0 # there appears to be a cut off where these are numerically 0
+
+    # Warning! This is not actually counts! This will only work for the purposes of binarizing the counts
+    # as in the persist model. We can't totally recover it because of the clipping in scale.
+    adata.layers['counts'] = X
+
     return adata
 
 def log_and_normalize(X, recon_X=None):
@@ -662,6 +671,18 @@ def get_citeseq(file_path):
     """
     adata = sc.read_h5ad(file_path)
     adata.obs['annotation'] = adata.obs['names'].astype('category')
+
+    std = np.expand_dims(adata.var['std'].to_numpy(), axis=0)
+    mean = np.expand_dims(adata.var['mean'].to_numpy(), axis=0)
+    X = adata.X.copy()
+
+    X = (X * std) + mean
+    X[X < 1e-5] = 0.0 # there appears to be a cut off where these are numerically 0
+
+    # Warning! This is not actually counts! This will only work for the purposes of binarizing the counts
+    # as in the persist model. We can't totally recover it because of the clipping in scale.
+    adata.layers['counts'] = X
+
     return adata
 
 def relabel_mouse_labels(label):
@@ -741,7 +762,7 @@ def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, smashpy_preproces
     adata_snrna_raw = anndata.read_h5ad(mouse_brain_path)
     del adata_snrna_raw.raw
     adata_snrna_raw.X = adata_snrna_raw.X.toarray()
-    adata_snrna_raw.layers['counts'] = adata_snrna_raw.X # save the counts in a layer
+    adata_snrna_raw.layers['counts'] = adata_snrna_raw.X.copy() # save the counts in a layer
     ## Cell type annotations
     labels = pd.read_csv(mouse_brain_labels_path, index_col=0)
     if relabel:
