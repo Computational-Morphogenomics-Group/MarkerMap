@@ -12,6 +12,16 @@ Classifier: Operating System :: OS Independent
 Requires-Python: >=3.7
 Description-Content-Type: text/markdown
 License-File: LICENSE
+Requires-Dist: lassonet
+Requires-Dist: matplotlib
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: pytorch-lightning
+Requires-Dist: scanpy
+Requires-Dist: seaborn
+Requires-Dist: smashpy>=0.1.2
+Requires-Dist: torch
+Requires-Dist: umap-learn
 
 # MarkerMap
 

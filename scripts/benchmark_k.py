@@ -48,9 +48,9 @@ def handleArgs(argv):
   parser.add_argument('-b', '--benchmark', help='what we are benchmarking over', default='k', choices=benchmark_options)
   parser.add_argument('--data_dir', help='directory where the input data is located', type=str, default='data/')
   parser.add_argument(
-    '--eval_type', 
-    help='whether the evaluator is classification or reconstruction', 
-    choices=eval_type_options, 
+    '--eval_type',
+    help='whether the evaluator is classification or reconstruction',
+    choices=eval_type_options,
     default='classify',
   )
   parser.add_argument('--single_val', help='use when you don\'t want to benchmark on a range', type=str, default=None)
@@ -59,12 +59,12 @@ def handleArgs(argv):
   args = parser.parse_args()
 
   return (
-    args.data_name, 
-    args.save_file, 
-    args.runs, 
-    args.gpus, 
-    args.hidden_layer_size, 
-    args.eval_model, 
+    args.data_name,
+    args.save_file,
+    args.runs,
+    args.gpus,
+    args.hidden_layer_size,
+    args.eval_model,
     args.benchmark,
     args.data_dir,
     args.eval_type,
@@ -74,13 +74,13 @@ def handleArgs(argv):
 
 # Main
 (
-  data_name, 
-  save_file, 
-  num_times, 
-  gpus, 
-  hidden_layer_size, 
-  eval_model, 
-  benchmark_mode, 
+  data_name,
+  save_file,
+  num_times,
+  gpus,
+  hidden_layer_size,
+  eval_model,
+  benchmark_mode,
   data_dir,
   eval_type,
   single_val,
@@ -301,22 +301,22 @@ l1_vae = VAE_l1_diag.getBenchmarker(
 )
 
 unsup_persist = PersistWrapper.getBenchmarker(
-  create_kwargs = { 'supervised': False }, 
+  create_kwargs = { 'supervised': False },
   train_kwargs = { 'k': k, 'eliminate_step': True, 'eliminate_nepochs': 50 },
 )
 
 sup_persist = PersistWrapper.getBenchmarker(
-  create_kwargs = { 'supervised': True }, 
+  create_kwargs = { 'supervised': True },
   train_kwargs = { 'k': k, 'eliminate_step': True, 'eliminate_nepochs': 50 },
 )
 
 results, benchmark_mode, benchmark_range = benchmark(
   {
-    UNSUP_MM: unsupervised_mm,
-    SUP_MM: supervised_mm,
-    MIXED_MM: mixed_mm,
-    BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
-    LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
+    # UNSUP_MM: unsupervised_mm,
+    # SUP_MM: supervised_mm,
+    # MIXED_MM: mixed_mm,
+    # BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
+    # LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
     CONCRETE_VAE: concrete_vae,
     GLOBAL_GATE: global_gate,
     SMASH_RF: smash_rf,

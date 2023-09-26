@@ -387,8 +387,13 @@ def plot_umap_embedding(X, y, encoder, title, path = None, markers = None, close
 
     ax.set_title(title)
     ax.legend()
+    plt.tight_layout()
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel('UMAP1')
+    ax.set_ylabel('UMAP2')
     if path is not None:
-        plt.savefig(path)
+        plt.savefig(path, bbox_inches='tight')
 
     if close_fig:
         plt.close(fig)
@@ -441,11 +446,13 @@ def plot_confusion_matrix(cm,
 
     plt.figure(figsize=(8, 6))
     if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-    #plt.imshow(cm, interpolation='nearest', cmap=cmap)
-    sns.heatmap(cm, annot=True,cmap=cmap)
-    plt.title(title)
-    #plt.colorbar()
+        cm = np.floor(100*cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]) / 100
+    # sns.heatmap(cm, annot=True,cmap=cmap)
+    sns.heatmap(cm, annot=True,cmap=cmap,cbar=False, square=True)
+    plt.title(title, fontsize=20)
+
+    plt.xticks([])
+    plt.yticks([])
 
     if target_names is not None:
         tick_marks = np.arange(len(target_names))
@@ -454,8 +461,8 @@ def plot_confusion_matrix(cm,
 
     
     plt.tight_layout()
-    plt.ylabel('True label')
-    plt.xlabel('Predicted label\naccuracy={:0.2f}; misclass={:0.2f}'.format(accuracy, misclass))
+    # plt.ylabel('True label')
+    # plt.xlabel('Predicted label\naccuracy={:0.2f}; misclass={:0.2f}'.format(accuracy, misclass))
     
     if save_path is not None:
         plt.savefig(save_path, bbox_inches='tight')
@@ -506,10 +513,17 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
         if print_vals:
             print(f'{label}: {mean_result}')
 
-    ax1.set_title(f'{mode.capitalize()} Benchmark, over {num_runs} runs')
-    ax1.set_xlabel(benchmark_label)
-    ax1.set_ylabel(mode.capitalize())
-    ax1.legend()
+    # ax1.set_title(f'{mode.capitalize()} Benchmark, over {num_runs} runs')
+    ax1.set_title('Zeisel Robustness, Markers Only', fontsize=20)
+    # ax1.set_xlabel(benchmark_label)
+    ax1.set_xlabel('Fraction of Mislabeled Training Points', fontsize=20)
+    ax1.set_ylabel('Accuracy', fontsize=20)
+    ax1.set_xticks(benchmark_range)
+    # ax1.set_yticks([])
+    # ax1.set_ylabel(mode.capitalize())
+    # ax1.legend()
+    plt.tight_layout()
+    plt.savefig('../images/benchmark_label_error_images/zeisel/zeisel_label_error_10_markers_only_minimal.pdf', bbox_inches='tight')
 
     plt.show()
 
