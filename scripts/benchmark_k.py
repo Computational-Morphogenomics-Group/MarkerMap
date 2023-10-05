@@ -6,9 +6,9 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LinearRegression
 
-from markermap.other_models import SmashPyWrapper, LassoNetWrapper, RandomBaseline, RankCorrWrapper, ScanpyRankGenes, COSGWrapper, PersistWrapper
-from markermap.vae_models import MarkerMap, ConcreteVAE_NMSL, VAE_Gumbel_GlobalGate, VAE_l1_diag
-from markermap.utils import benchmark, plot_benchmarks, get_citeseq, get_mouse_brain, get_paul, get_zeisel
+import markermap.other_models as other_models
+import markermap.vae_models as vae_models
+import markermap.utils as utils
 
 #Consts
 BASELINE = 'Baseline'
@@ -23,12 +23,13 @@ CONCRETE_VAE = 'Concrete VAE'
 LASSONET = 'LassoNet'
 RANK_CORR = 'RankCorr'
 SCANPY = 'Scanpy Rank Genes'
+SCANPY_HVG = 'Scanpy Highly Variable Genes'
 COSG = 'COSG'
 UNSUP_PERSIST = 'Unsupervised PERSIST'
 SUP_PERSIST = 'Supervised PERSIST'
 
 def handleArgs(argv):
-  data_name_options = ['zeisel', 'zeisel_big', 'paul', 'cite_seq', 'mouse_brain', 'mouse_brain_big']
+  data_name_options = ['zeisel', 'zeisel_big', 'paul', 'cite_seq', 'mouse_brain', 'mouse_brain_big', 'ssv4']
   eval_model_options = ['random_forest', 'k_nearest_neighbors', 'linear_regression']
   benchmark_options = ['k', 'label_error', 'label_error_markers_only']
   eval_type_options = ['classify', 'reconstruct']
@@ -55,6 +56,7 @@ def handleArgs(argv):
   )
   parser.add_argument('--single_val', help='use when you don\'t want to benchmark on a range', type=str, default=None)
   parser.add_argument('--seed', help='random seed', default=None, type=int)
+  parser.add_argument('--unsup_only', help='only use the unsupervised models', action='store_true', default=False)
 
   args = parser.parse_args()
 
@@ -70,6 +72,7 @@ def handleArgs(argv):
     args.eval_type,
     args.single_val,
     args.seed,
+    args.unsup_only,
   )
 
 # Main
@@ -85,6 +88,7 @@ def handleArgs(argv):
   eval_type,
   single_val,
   seed,
+  unsupervised_only,
 ) = handleArgs(sys.argv)
 
 if eval_model is None:
@@ -122,26 +126,34 @@ max_epochs = 100
 precision=32
 
 if data_name == 'zeisel':
-  adata = get_zeisel(data_dir + 'zeisel/Zeisel.h5ad')
+  adata = utils.get_zeisel(data_dir + 'zeisel/Zeisel.h5ad')
 elif data_name == 'zeisel_big':
-  adata = get_zeisel(data_dir + 'zeisel/Zeisel.h5ad', 'names1')
+  adata = utils.get_zeisel(data_dir + 'zeisel/Zeisel.h5ad', 'names1')
 elif data_name == 'paul':
-  adata = get_paul(
+  adata = utils.get_paul(
     data_dir + 'paul15/house_keeping_genes_Mouse_bone_marrow.txt',
     data_dir + 'paul15/house_keeping_genes_Mouse_HSC.txt',
   )
 elif data_name == 'cite_seq':
-  adata = get_citeseq(data_dir + 'cite_seq/CITEseq.h5ad')
+  adata = utils.get_citeseq(data_dir + 'cite_seq/CITEseq.h5ad')
 elif data_name == 'mouse_brain':
-  adata = get_mouse_brain(
+  adata = utils.get_mouse_brain(
     data_dir + 'mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
     data_dir + 'mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
   )
 elif data_name =='mouse_brain_big':
-  adata = get_mouse_brain(
+  adata = utils.get_mouse_brain(
     data_dir + 'mouse_brain_broad/mouse_brain_all_cells_20200625.h5ad',
     data_dir + 'mouse_brain_broad/snRNA_annotation_astro_subtypes_refined59_20200823.csv',
     relabel=False,
+  )
+elif data_name == 'ssv4':
+  adata = utils.get_ssv4(
+    data_dir + 'persist/v1_raw.csv',
+    [
+      data_dir + 'paul15/house_keeping_genes_Mouse_bone_marrow.txt', 
+      data_dir + 'paul15/house_keeping_genes_Mouse_HSC.txt',
+    ],
   )
 
 num_classes = len(adata.obs['annotation'].unique())
@@ -152,12 +164,12 @@ else:
   print('WARNING! If you don\'t set a seed, smashpy will set your seed to 42 ON PACKAGE IMPORT.')
 # The smashpy methods set global seeds that mess with sampling. These seeds are used
 # to stop those methods from using the same global seed over and over.
-random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length = len(benchmark_range) * num_times * 5)
+random_seeds_queue = other_models.SmashPyWrapper.getRandomSeedsQueue(length = len(benchmark_range) * num_times * 5)
 
 input_size = adata.shape[1]
 
 # Declare models
-unsupervised_mm = MarkerMap.getBenchmarker(
+unsupervised_mm = vae_models.MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -181,7 +193,7 @@ unsupervised_mm = MarkerMap.getBenchmarker(
   },
 )
 
-supervised_mm = MarkerMap.getBenchmarker(
+supervised_mm = vae_models.MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -204,7 +216,7 @@ supervised_mm = MarkerMap.getBenchmarker(
   }
 )
 
-mixed_mm = MarkerMap.getBenchmarker(
+mixed_mm = vae_models.MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -227,7 +239,7 @@ mixed_mm = MarkerMap.getBenchmarker(
   }
 )
 
-concrete_vae = ConcreteVAE_NMSL.getBenchmarker(
+concrete_vae = vae_models.ConcreteVAE_NMSL.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -248,7 +260,7 @@ concrete_vae = ConcreteVAE_NMSL.getBenchmarker(
   }
 )
 
-global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
+global_gate = vae_models.VAE_Gumbel_GlobalGate.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -271,19 +283,19 @@ global_gate = VAE_Gumbel_GlobalGate.getBenchmarker(
   }
 )
 
-smash_rf = SmashPyWrapper.getBenchmarker(
+smash_rf = other_models.SmashPyWrapper.getBenchmarker(
   train_kwargs = { 'restrict_top': ('global', k) },
   model='RandomForest',
   random_seeds_queue = random_seeds_queue,
 )
 
-smash_dnn = SmashPyWrapper.getBenchmarker(
+smash_dnn = other_models.SmashPyWrapper.getBenchmarker(
   train_kwargs = { 'restrict_top': ('global', k) },
   model='DNN',
   random_seeds_queue = random_seeds_queue,
 )
 
-l1_vae = VAE_l1_diag.getBenchmarker(
+l1_vae = vae_models.VAE_l1_diag.getBenchmarker(
   create_kwargs = {
     'input_size': input_size,
     'hidden_layer_size': hidden_layer_size,
@@ -300,38 +312,49 @@ l1_vae = VAE_l1_diag.getBenchmarker(
   },
 )
 
-unsup_persist = PersistWrapper.getBenchmarker(
+unsup_persist = other_models.PersistWrapper.getBenchmarker(
   create_kwargs = { 'supervised': False }, 
   train_kwargs = { 'k': k, 'eliminate_step': True, 'eliminate_nepochs': 50 },
 )
 
-sup_persist = PersistWrapper.getBenchmarker(
+sup_persist = other_models.PersistWrapper.getBenchmarker(
   create_kwargs = { 'supervised': True }, 
   train_kwargs = { 'k': k, 'eliminate_step': True, 'eliminate_nepochs': 50 },
 )
 
-results, benchmark_mode, benchmark_range = benchmark(
-  {
-    UNSUP_MM: unsupervised_mm,
-    SUP_MM: supervised_mm,
-    MIXED_MM: mixed_mm,
-    BASELINE: RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
-    LASSONET: LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
-    CONCRETE_VAE: concrete_vae,
-    GLOBAL_GATE: global_gate,
-    SMASH_RF: smash_rf,
-    # SMASH_DNN: smash_dnn,
-    # L1_VAE: l1_vae,
-    RANK_CORR: RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),
-    SCANPY: ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
-    SCANPY + ' overestim_var': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 't-test_overestim_var' }),
-    SCANPY + ' wilcoxon': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon' }),
-    SCANPY + ' wilcoxon tie': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
-    # SCANPY + ' logreg': ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
-    COSG: COSGWrapper.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
-    UNSUP_PERSIST: unsup_persist,
-    SUP_PERSIST: sup_persist,
-  },
+models = {
+  UNSUP_MM: unsupervised_mm,
+  SUP_MM: supervised_mm,
+  MIXED_MM: mixed_mm,
+  BASELINE: other_models.RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
+  LASSONET: other_models.LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
+  CONCRETE_VAE: concrete_vae,
+  GLOBAL_GATE: global_gate,
+  SMASH_RF: smash_rf,
+  # SMASH_DNN: smash_dnn,
+  # L1_VAE: l1_vae,
+  RANK_CORR: other_models.RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),
+  SCANPY: other_models.ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
+  SCANPY + ' overestim_var': other_models.ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 't-test_overestim_var' }),
+  SCANPY + ' wilcoxon': other_models.ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon' }),
+  SCANPY + ' wilcoxon tie': other_models.ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'wilcoxon', 'tie_correct': True }),
+  # SCANPY + ' logreg': other_models.ScanpyRankGenes.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes, 'method': 'logreg' }),
+  SCANPY_HVG: other_models.ScanpyHVGs.getBenchmarker(train_kwargs = { 'k': k }),
+  COSG: other_models.COSGWrapper.getBenchmarker(train_kwargs = { 'k': k, 'num_classes': num_classes }),
+  UNSUP_PERSIST: unsup_persist,
+  SUP_PERSIST: sup_persist,
+}
+
+if unsupervised_only:
+  models = { 
+    UNSUP_MM: models[UNSUP_MM], 
+    BASELINE: models[BASELINE], 
+    SCANPY_HVG: models[SCANPY_HVG],
+    UNSUP_PERSIST: models[UNSUP_PERSIST],
+  }
+
+results, benchmark_mode, benchmark_range = utils.benchmark(
+  models,
   num_times,
   adata,
   save_file=save_file,
@@ -343,4 +366,4 @@ results, benchmark_mode, benchmark_range = benchmark(
 )
 
 plot_mode = 'accuracy' if eval_type == 'classify' else 'l2'
-plot_benchmarks(results, benchmark_mode, benchmark_range, mode=plot_mode, show_stdev=True, print_vals=True)
+utils.plot_benchmarks(results, benchmark_mode, benchmark_range, mode=plot_mode, show_stdev=True, print_vals=True)

@@ -368,14 +368,14 @@ class SmashPyWrapper(smashpy, AnnDataModel):
             (np.array) the selected k markers
         """
         create_kwargs = {
-            'group_by': 'annotation',
+            'group_by': group_by,
             'verbose': False, # has a bug, need to further control printing
             'save': False,
             **create_kwargs,
         }
 
         train_kwargs = {
-            'group_by': 'annotation',
+            'group_by': group_by,
             'verbose': False,
             **train_kwargs,
         }
@@ -446,7 +446,6 @@ class ScanpyRankGenes(AnnDataModel):
         returns:
             (np.array) the selected k markers
         """
-        group_by = 'annotation'
         method = train_kwargs['method'] if 'method' in train_kwargs else 't-test'
         tie_correct = train_kwargs['tie_correct'] if 'tie_correct' in train_kwargs else False
 
@@ -496,6 +495,62 @@ class ScanpyRankGenes(AnnDataModel):
         assert len(genes) == k
 
         return genes
+    
+class ScanpyHVGs(AnnDataModel):
+    # This is the unsupervised method in scanpy that PERSIST tests against, highly_variable_genes
+
+    @classmethod
+    def prepareData(cls, adata, train_indices, val_indices, group_by, layer='log'):
+        """
+        Reduces adata to those with train_indices and val_indices
+        Splits adata into train data and validation data based on provided indices. 
+        args:
+            adata (AnnData object): the data, including input and labels
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            group_by (string): key for where the label data is in .obs
+        """
+        adata = super().prepareData(adata, train_indices, val_indices) # select the indices of train and val
+        return anndata.AnnData(X=adata.layers[layer].copy()) # use the data in the layer
+
+    @classmethod
+    def benchmarkerFunctional(
+        cls,
+        create_kwargs,
+        train_kwargs,
+        adata,
+        group_by,
+        batch_size,
+        train_indices,
+        val_indices,
+        k=None,
+    ):
+        """
+        Class function that initializes, trains, and returns markers for the provided data with the specific params
+        args:
+            cls (string): The current, derived class name, used for calling derived class functions
+            create_kwargs (dict): ALL args used by the model constructor as a keyword arg dictionary
+            train_args (dict): ALL args used by the train model step as a keyword arg dictionary
+            adata (AnnData object): input and label data
+            group_by (string): string key for adata.obs[group_by] where the output labels live
+            batch_size (int): batch size for models that use batches
+            train_indices (array-like): the indices to be used as the training set
+            val_indices (array-like): the indices to be used as the validation set
+            k (int): k value for the model, the number of markers to select
+        returns:
+            (np.array) the selected k markers
+        """
+        if k is None:
+            k = train_kwargs['k']
+
+        adata_train = cls.prepareData(adata, train_indices, val_indices, group_by, layer='log')
+
+        annotations = sc.pp.highly_variable_genes(adata_train, n_top_genes=k, inplace=False)
+        markers = np.where(annotations['highly_variable'])[0]
+
+        assert len(markers) == k
+
+        return markers
     
 class COSGWrapper(AnnDataModel):
 

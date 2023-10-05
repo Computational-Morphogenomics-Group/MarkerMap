@@ -5,3 +5,4 @@ Figures
 weights
 checkpoints
 .DS_Store
+lr_find_temp_model_*
