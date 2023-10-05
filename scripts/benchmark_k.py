@@ -130,10 +130,10 @@ if data_name == 'zeisel':
 elif data_name == 'zeisel_big':
   adata = utils.get_zeisel(data_dir + 'zeisel/Zeisel.h5ad', 'names1')
 elif data_name == 'paul':
-  adata = utils.get_paul(
+  adata = utils.get_paul([
     data_dir + 'paul15/house_keeping_genes_Mouse_bone_marrow.txt',
     data_dir + 'paul15/house_keeping_genes_Mouse_HSC.txt',
-  )
+  ])
 elif data_name == 'cite_seq':
   adata = utils.get_citeseq(data_dir + 'cite_seq/CITEseq.h5ad')
 elif data_name == 'mouse_brain':

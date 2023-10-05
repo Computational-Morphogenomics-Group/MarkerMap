@@ -44,7 +44,7 @@ def handleArgs(argv):
   show_stdev,
 ) = handleArgs(sys.argv)
 
-file_name = f'{data_dir}{dataset}_{benchmark}_{eval_type}_{eval_model}_r10_s1729_fixed2.npy'
+file_name = f'{data_dir}{dataset}_{benchmark}_{eval_type}_{eval_model}_r10_s1729.npy'
 
 if dataset == 'zeisel' or dataset == 'paul':
   dataset_name = dataset.capitalize()

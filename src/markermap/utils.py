@@ -315,7 +315,7 @@ def benchmark(
                 model_results['time'].append(time.time() - start_time)
 
                 if (eval_type == 'classify'):
-                    model_misclass, test_rep, cm = new_model_metrics(
+                    model_misclass, test_rep, _ = new_model_metrics(
                         adata[train_val_indices, :].X,
                         adata[train_val_indices, :].obs[classifier_train_group_by],
                         adata_test.X,
@@ -323,8 +323,6 @@ def benchmark(
                         markers = markers,
                         model=eval_model,
                     )
-                    # np.save('../mm_extras/cms/mouse_brain_cm_unsup_markermap.npy', cm)
-                    # exit()
                     model_results['misclass'].append(model_misclass)
                     model_results['f1'].append(test_rep['weighted avg']['f1-score'])
                 elif (eval_type == 'reconstruct'):
@@ -743,14 +741,14 @@ def get_ssv4(file_path, housekeeping_genes_paths, names_key='cell_types_98'):
     adata.obs['annotation'] = cell_types
 
     # Remove classes that have fewer than 4 elements because many of our methods require more items per class
-    small_classes = (
-        (adata.obs['annotation'] == 'L6 CT ALM Cpa6') |
-        (adata.obs['annotation'] == 'L5 IT ALM Cpa6 Gpr88') |
-        (adata.obs['annotation'] == 'L5 IT ALM Npw') |
-        (adata.obs['annotation'] == 'L6 IT ALM Oprk1') |
-        (adata.obs['annotation'] == 'L6 IT ALM Tgfb1') |
-        (adata.obs['annotation'] == 'L2/3 IT ALM Sla') 
-    )
+    small_classes = None
+    for label in adata.obs['annotation'].unique():
+        if np.sum(adata.obs['annotation'] == label) < 4:
+            if small_classes is None:
+                small_classes = (adata.obs['annotation'] == label)
+            else:
+                small_classes = (small_classes | (adata.obs['annotation'] == label))
+
     adata = adata[~small_classes, :]
 
     adata = remove_general_genes(adata)
@@ -837,7 +835,7 @@ def remove_housekeeping_genes(adata, housekeeping_genes_paths):
     adata.var["general"] = [(gene not in hkg) for gene in adata.var.index.tolist()]
     return adata[:, adata.var["general"]]
 
-def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path, smashpy_preprocess=True):
+def get_paul(housekeeping_genes_paths, smashpy_preprocess=True):
     """
     Get the paul data from scanpy and remove the housekeeping genes from the two provided files
     args:
@@ -862,7 +860,7 @@ def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path, smashpy_prep
         adata.layers['scale'] = adata.X
 
     adata = remove_general_genes(adata)
-    adata = remove_housekeeping_genes(adata, [housekeeping_bone_marrow_path, house_keeping_HSC_path])
+    adata = remove_housekeeping_genes(adata, housekeeping_genes_paths)
 
     dict_annotation = {}
 
