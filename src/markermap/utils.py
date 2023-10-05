@@ -387,8 +387,13 @@ def plot_umap_embedding(X, y, encoder, title, path = None, markers = None, close
 
     ax.set_title(title)
     ax.legend()
+    plt.tight_layout()
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel('UMAP1')
+    ax.set_ylabel('UMAP2')
     if path is not None:
-        plt.savefig(path)
+        plt.savefig(path, bbox_inches='tight')
 
     if close_fig:
         plt.close(fig)
@@ -441,11 +446,13 @@ def plot_confusion_matrix(cm,
 
     plt.figure(figsize=(8, 6))
     if normalize:
-        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-    #plt.imshow(cm, interpolation='nearest', cmap=cmap)
-    sns.heatmap(cm, annot=True,cmap=cmap)
-    plt.title(title)
-    #plt.colorbar()
+        cm = np.floor(100*cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]) / 100
+    # sns.heatmap(cm, annot=True,cmap=cmap)
+    sns.heatmap(cm, annot=True,cmap=cmap,cbar=False, square=True)
+    plt.title(title, fontsize=20)
+
+    plt.xticks([])
+    plt.yticks([])
 
     if target_names is not None:
         tick_marks = np.arange(len(target_names))
@@ -454,15 +461,67 @@ def plot_confusion_matrix(cm,
 
     
     plt.tight_layout()
-    plt.ylabel('True label')
-    plt.xlabel('Predicted label\naccuracy={:0.2f}; misclass={:0.2f}'.format(accuracy, misclass))
+    # plt.ylabel('True label')
+    # plt.xlabel('Predicted label\naccuracy={:0.2f}; misclass={:0.2f}'.format(accuracy, misclass))
     
     if save_path is not None:
         plt.savefig(save_path, bbox_inches='tight')
     plt.show()
 
+def get_display_label(label):
+    UNSUP_MM = 'Unsupervised Marker Map'
+    SUP_MM = 'Supervised Marker Map'
+    MIXED_MM = 'Mixed Marker Map'
+    BASELINE = 'Baseline'
+    LASSONET = 'LassoNet'
+    CONCRETE_VAE = 'Concrete VAE'
+    GLOBAL_GATE = 'Global Gate'
+    SMASH_RF = 'Smash Random Forest'
+    RANK_CORR = 'RankCorr'
+    SCANPY_T_TEST = 'Scanpy Rank Genes'
+    SCANPY_OVERESTIM_VAR ='Scanpy Rank Genes overestim_var'
+    SCANPY_WILCOXON = 'Scanpy Rank Genes wilcoxon'
+    SCANPY_WILCOXON_TIE ='Scanpy Rank Genes wilcoxon tie'
+    SCANPY_HVG = 'Scanpy Highly Variable Genes'
+    COSG = 'COSG'
+    UNSUP_PERSIST = 'Unsupervised PERSIST'
+    SUP_PERSIST = 'Supervised PERSIST'
 
-def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', show_stdev=False, print_vals=False):
+    # has the renaming
+    models = {
+        UNSUP_MM: 'MarkerMap unsupervised',
+        SUP_MM: 'MarkerMap supervised',
+        MIXED_MM: 'MarkerMap joint',
+        BASELINE: 'Random Markers',
+        LASSONET: LASSONET,
+        CONCRETE_VAE: CONCRETE_VAE,
+        GLOBAL_GATE: 'Global-Gumbel VAE',
+        SMASH_RF: 'SMaSH',
+        RANK_CORR: RANK_CORR,
+        SCANPY_T_TEST: 'Scanpy t-test',
+        SCANPY_OVERESTIM_VAR: 'Scanpy overestim_var',
+        SCANPY_WILCOXON: 'Scanpy Wilcoxon',
+        SCANPY_WILCOXON_TIE: 'Scanpy Wilcoxon Tie',
+        SCANPY_HVG: SCANPY_HVG,
+        COSG: COSG,
+        UNSUP_PERSIST: 'PERSIST unsupervised',
+        SUP_PERSIST: 'PERSIST supervised',
+    }
+    return models[label]
+
+
+def plot_benchmarks(
+    results, 
+    benchmark_label, 
+    benchmark_range, 
+    mode='misclass', 
+    show_stdev=False, 
+    print_vals=False,
+    save_file=None,
+    title='',
+    show_legend=True,
+    groups=None,
+):
     """
     Plot benchmark results of multiple models over the values that you are benchmarking on
     args:
@@ -500,16 +559,111 @@ def plot_benchmarks(results, benchmark_label, benchmark_range, mode='misclass', 
             ax1.fill_between(benchmark_range, mean_result - stdev, mean_result + stdev, alpha=0.2)
 
         #plot the results for this model against the benchmarked range
-        ax1.plot(benchmark_range, mean_result, label=label, marker=markers[i])
+        ax1.plot(benchmark_range, mean_result, label=get_display_label(label), marker=markers[i])
         i = (i+1) % len(markers)
 
         if print_vals:
             print(f'{label}: {mean_result}')
 
-    ax1.set_title(f'{mode.capitalize()} Benchmark, over {num_runs} runs')
-    ax1.set_xlabel(benchmark_label)
-    ax1.set_ylabel(mode.capitalize())
-    ax1.legend()
+    xlabels_map = {
+        'k': 'Number of Markers Selected',
+        'label_error': 'Fraction of Mislabeled Training Points',
+        'label_error_markers_only': 'Fraction of Mislabeled Training Points',
+    }
+
+    ax1.set_title(title, fontsize=20)
+    ax1.set_xlabel(xlabels_map[benchmark_label], fontsize=20)
+    ax1.set_ylabel(mode.capitalize(), fontsize=20)
+    ax1.set_xticks(benchmark_range)
+    if show_legend:
+        ax1.legend()
+    plt.tight_layout()
+
+    if save_file is not None:
+        plt.savefig(save_file, bbox_inches='tight')
+
+    plt.show()
+
+def plot_benchmarks_aligned(
+    results, 
+    benchmark_label, 
+    benchmark_range, 
+    mode='misclass', 
+    show_stdev=False, 
+    print_vals=False,
+    save_file=None,
+    title='',
+    show_legend=True,
+    groups=None,
+):
+    """
+    Plot benchmark results of multiple models over the values that you are benchmarking on
+    args:
+        results (dict): maps model label to np.array of the misclassifications with shape (num_runs x benchmark range)
+        benchmark label (string): what you are benchmarking over, will be the x_label
+        benchmark_range (array): values that you are benchmarking over
+        mode (string): one of {'misclass', 'accuracy', 'f1'}, defaults to 'misclass'
+        show_stdev (bool): whether to show fill_between range of 1 stdev over the num_runs, defaults to false
+        print_vals (bool): print the vals that are displayed in the plot
+    """
+    mode_options = {'misclass', 'accuracy', 'f1', 'l2', 'l1'}
+    if mode not in mode_options:
+        raise Exception(f'plot_benchmarks: Possible choices of mode are {mode_options}')
+
+    markers = ['.','o','v','^','<','>','8','s','p','P','*','h','H','+','x','X','D','d','|','_','1','2','3','4',',']
+    i = 0
+
+    if mode == 'accuracy':
+        results = results['misclass']
+    else:
+        results = results[mode]
+
+    _, axes = plt.subplots(ncols=len(groups), nrows=1, sharey=True, figsize=(len(groups)*6.4,4.8))
+    for j, group in enumerate(groups):
+        if len(groups) == 1:
+            ax1 = axes 
+        else:
+            ax1 = axes[j]
+
+        for label, result in results.items():
+            if label not in group:
+                continue
+
+            if mode == 'accuracy':
+                result = np.ones(result.shape) - result
+
+            mean_result = result.mean(axis=0)
+
+            #only show standard deviation if there we multiple runs
+            if show_stdev and result.shape[0] > 1:
+                stdev = result.std(axis=0)
+                ax1.fill_between(benchmark_range, mean_result - stdev, mean_result + stdev, alpha=0.2)
+
+            #plot the results for this model against the benchmarked range
+            ax1.plot(benchmark_range, mean_result, label=get_display_label(label), marker=markers[i])
+            i = (i+1) % len(markers)
+
+            if print_vals:
+                print(f'{label}: {mean_result}')
+
+        xlabels_map = {
+            'k': 'Number of Markers Selected',
+            'label_error': 'Fraction of Mislabeled Training Points',
+            'label_error_markers_only': 'Fraction of Mislabeled Training Points',
+        }
+
+        ax1.set_title(title, fontsize=20)
+        ax1.set_xlabel(xlabels_map[benchmark_label], fontsize=20)
+        ax1.set_xticks(benchmark_range)
+        if show_legend:
+            ax1.legend()
+        if j == 0:
+            ax1.set_ylabel(mode.capitalize(), fontsize=20)
+
+    plt.tight_layout()
+
+    if save_file is not None:
+        plt.savefig(save_file, bbox_inches='tight')
 
     plt.show()
 
@@ -568,6 +722,56 @@ def process_data(X, Y, filter_data = False):
 
     return np.assarray(aData.X.copy()), Y
 
+def get_ssv4(file_path, housekeeping_genes_paths, names_key='cell_types_98'):
+    """
+        Some code taken from PERSIST: https://github.com/iancovert/persist/blob/main/notebooks/demo.ipynb
+        args:
+            file_path (str): file path to the v1_raw
+            names_key (str): could be 'cell_types_98', 'cell_types_50', or 'cell_types_25'
+    """
+
+    # Load dataframes
+    df_raw = pd.read_csv(file_path, header=0, index_col=0, delimiter=',')
+
+    # Arrange raw and CPM data
+    cell_types = pd.Categorical(df_raw[names_key])
+    raw = df_raw.iloc[:, :-3].astype(np.float32) # last 3 cols are the cell_types
+
+    adata = anndata.AnnData(X=raw)
+    adata.obs['annotation'] = cell_types
+
+    # Remove classes that have fewer than 4 elements because many of our methods require more items per class
+    small_classes = None
+    for label in adata.obs['annotation'].unique():
+        if np.sum(adata.obs['annotation'] == label) < 4:
+            if small_classes is None:
+                small_classes = (adata.obs['annotation'] == label)
+            else:
+                small_classes = (small_classes | (adata.obs['annotation'] == label))
+
+    adata = adata[~small_classes, :]
+
+    adata = remove_general_genes(adata)
+    adata = remove_housekeeping_genes(adata, housekeeping_genes_paths)
+
+    # these don't do anything for this data set, but leave them in for clarity
+    sc.pp.filter_cells(adata, min_genes=1)
+    sc.pp.filter_genes(adata, min_cells=1)
+
+    # these do have an affect
+    adata = remove_features_pct(adata, group_by="annotation", pct=0.3)
+    adata = remove_features_pct_2groups(adata, group_by="annotation", pct1=0.75, pct2=0.5)
+
+    adata.layers['counts'] = adata.X.copy()
+    sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)
+    adata.layers['norm'] = adata.X.copy()
+    sc.pp.log1p(adata)
+    adata.layers['log'] = adata.X.copy()
+    sc.pp.scale(adata, max_value=10)
+    adata.layers['scale'] = adata.X.copy()
+
+    return adata
+
 def get_zeisel(file_path, names_key='names0'):
     """
     Get the zeisel data located a file path
@@ -590,6 +794,7 @@ def get_zeisel(file_path, names_key='names0'):
     # Warning! This is not actually counts! This will only work for the purposes of binarizing the counts
     # as in the persist model. We can't totally recover it because of the clipping in scale.
     adata.layers['counts'] = X
+    adata.layers['log'] = X.copy()
 
     return adata
 
@@ -608,8 +813,29 @@ def log_and_normalize(X, recon_X=None):
   else:
     log_recon_X = np.log(recon_X + np.ones(recon_X.shape))
     return ((log_X - X_mean) / X_std, (log_recon_X - X_mean) / X_std)
+  
+def remove_general_genes(adata):
+    general_genes = (
+        adata.var_names.str.startswith("Mt") |
+        adata.var_names.str.startswith("Rps") | 
+        adata.var_names.str.startswith("Rpl") | 
+        adata.var_names.str.startswith("Hsp") | 
+        adata.var_names.str.startswith("Hla")
+    )
+    return adata[:,~general_genes]
 
-def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path, smashpy_preprocess=True):
+def remove_housekeeping_genes(adata, housekeeping_genes_paths):
+    # remove housekeeping genes
+    hkg = []
+    for file_name in housekeeping_genes_paths:
+        hkg.append(np.loadtxt(file_name, dtype="str"))
+
+    hkg = np.concatenate(hkg).ravel()
+
+    adata.var["general"] = [(gene not in hkg) for gene in adata.var.index.tolist()]
+    return adata[:, adata.var["general"]]
+
+def get_paul(housekeeping_genes_paths, smashpy_preprocess=True):
     """
     Get the paul data from scanpy and remove the housekeeping genes from the two provided files
     args:
@@ -618,9 +844,14 @@ def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path, smashpy_prep
     returns: X data array, y transformed labels, encoder that transformed the labels
     """
     adata = sc.datasets.paul15()
-    sm = other_models.SmashPyWrapper()
     if (smashpy_preprocess):
-        sm.data_preparation(adata)
+        adata.layers['counts'] = adata.X.copy()
+        sc.pp.normalize_per_cell(adata, counts_per_cell_after=1e4)
+        adata.layers['norm'] = adata.X.copy()
+        sc.pp.log1p(adata)
+        adata.layers['log'] = adata.X.copy()
+        sc.pp.scale(adata, max_value=10)
+        adata.layers['scale'] = adata.X.copy()
     else:
         # these layers are set in data_preparation and used in remove_general_genes and remove_housekeepingenes
         adata.layers['counts'] = adata.X
@@ -628,9 +859,9 @@ def get_paul(housekeeping_bone_marrow_path, house_keeping_HSC_path, smashpy_prep
         adata.layers['log'] = adata.X
         adata.layers['scale'] = adata.X
 
-    adata = sm.remove_general_genes(adata)
-    adata = sm.remove_housekeepingenes(adata, path=[housekeeping_bone_marrow_path])
-    adata = sm.remove_housekeepingenes(adata, path=[house_keeping_HSC_path])
+    adata = remove_general_genes(adata)
+    adata = remove_housekeeping_genes(adata, housekeeping_genes_paths)
+
     dict_annotation = {}
 
     dict_annotation['1Ery']='Ery'
@@ -682,6 +913,7 @@ def get_citeseq(file_path):
     # Warning! This is not actually counts! This will only work for the purposes of binarizing the counts
     # as in the persist model. We can't totally recover it because of the clipping in scale.
     adata.layers['counts'] = X
+    adata.layers['log'] = X.copy()
 
     return adata
 
@@ -817,6 +1049,7 @@ def get_mouse_brain(mouse_brain_path, mouse_brain_labels_path, smashpy_preproces
     if (smashpy_preprocess):
         sc.pp.normalize_per_cell(adata_snrna_raw, counts_per_cell_after=1e4)
         sc.pp.log1p(adata_snrna_raw)
+        adata_snrna_raw.layers['log'] = adata_snrna_raw.X.copy()
         sc.pp.scale(adata_snrna_raw, max_value=10)
 
     return adata_snrna_raw
