@@ -164,7 +164,7 @@ else:
   print('WARNING! If you don\'t set a seed, smashpy will set your seed to 42 ON PACKAGE IMPORT.')
 # The smashpy methods set global seeds that mess with sampling. These seeds are used
 # to stop those methods from using the same global seed over and over.
-random_seeds_queue = other_models.SmashPyWrapper.getRandomSeedsQueue(length = len(benchmark_range) * num_times * 5)
+random_seeds_queue = utils.getRandomSeedsQueue(length = len(benchmark_range) * num_times * 5)
 
 input_size = adata.shape[1]
 
@@ -283,17 +283,20 @@ global_gate = vae_models.VAE_Gumbel_GlobalGate.getBenchmarker(
   }
 )
 
-smash_rf = other_models.SmashPyWrapper.getBenchmarker(
-  train_kwargs = { 'restrict_top': ('global', k) },
-  model='RandomForest',
-  random_seeds_queue = random_seeds_queue,
-)
+# # Uncomment these if you are testing Smashpy. It is not installed by default because the package
+# # is not maintained and causes installation issues.
+# from markermap.smashpy_model import SmashPyWrapper
+# smash_rf = SmashPyWrapper.getBenchmarker(
+#   train_kwargs = { 'restrict_top': ('global', k) },
+#   model='RandomForest',
+#   random_seeds_queue = random_seeds_queue,
+# )
 
-smash_dnn = other_models.SmashPyWrapper.getBenchmarker(
-  train_kwargs = { 'restrict_top': ('global', k) },
-  model='DNN',
-  random_seeds_queue = random_seeds_queue,
-)
+# smash_dnn = SmashPyWrapper.getBenchmarker(
+#   train_kwargs = { 'restrict_top': ('global', k) },
+#   model='DNN',
+#   random_seeds_queue = random_seeds_queue,
+# )
 
 l1_vae = vae_models.VAE_l1_diag.getBenchmarker(
   create_kwargs = {
@@ -330,7 +333,7 @@ models = {
   LASSONET: other_models.LassoNetWrapper.getBenchmarker(train_kwargs = { 'k': k }),
   CONCRETE_VAE: concrete_vae,
   GLOBAL_GATE: global_gate,
-  SMASH_RF: smash_rf,
+  # SMASH_RF: smash_rf,
   # SMASH_DNN: smash_dnn,
   # L1_VAE: l1_vae,
   RANK_CORR: other_models.RankCorrWrapper.getBenchmarker(train_kwargs = { 'k': k, 'lamb': 20 }),

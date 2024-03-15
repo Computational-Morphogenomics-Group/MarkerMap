@@ -95,143 +95,6 @@ def make_gaussian_decoder(output_size, hidden_size, z_size, bias = True, batch_n
         nn.Linear(hidden_size, output_size, bias = bias),
     )
 
-class GumbelClassifier(pl.LightningModule):
-    def __init__(self, input_size, hidden_layer_size, z_size, num_classes, k, batch_norm = True, t = 2, temperature_decay = 0.9, method = 'mean', alpha = 0.99, bias = True, lr = 0.000001,
-            min_temp = MIN_TEMP):
-        super(GumbelClassifier, self).__init__()
-        self.save_hyperparameters()
-        assert temperature_decay > 0
-        assert temperature_decay <= 1
-
-
-        self.encoder = nn.Sequential(
-            *form_block(input_size, hidden_layer_size, bias = bias, batch_norm = batch_norm),
-            *form_block(hidden_layer_size, hidden_layer_size, bias = bias, batch_norm = batch_norm),
-            *form_block(hidden_layer_size, hidden_layer_size, bias = bias, batch_norm = False),
-            nn.Linear(hidden_layer_size, z_size, bias = True),
-            nn.LeakyReLU()
-        )
-
-
-        self.decoder = main_dec = nn.Sequential(
-            *form_block(z_size, hidden_layer_size, bias = bias, batch_norm = batch_norm),
-            nn.Linear(1*hidden_layer_size, num_classes, bias = bias),
-            nn.LogSoftmax(dim = 1)
-        )
-
-        self.weight_creator = nn.Sequential(
-            *form_block(input_size, hidden_layer_size, batch_norm = batch_norm),
-            nn.Dropout(),
-            *form_block(hidden_layer_size, hidden_layer_size, batch_norm = batch_norm),
-            nn.LeakyReLU(),
-            nn.Linear(hidden_layer_size, input_size)
-        )
-
-        self.method = method
-        self.k = k
-        self.batch_norm = batch_norm
-        self.register_buffer('t', torch.as_tensor(1.0 * t))
-        self.min_temp = min_temp
-        self.temperature_decay = temperature_decay
-        self.lr = lr
-        self.bias = bias
-        self.num_classes = num_classes
-
-        assert alpha < 1
-        assert alpha > 0
-
-        # flat prior for the features
-        # need the view because of the way we encode
-        self.register_buffer('logit_enc', torch.zeros(input_size).view(1, -1))
-
-        self.alpha = alpha
-        self.loss_function = nn.NLLLoss()
-
-    # training_phase determined by training_step
-    def encode(self, x, training_phase=False):
-        if training_phase:
-            w = self.weight_creator(x)
-
-            if self.method == 'mean':
-                pre_enc = w.mean(dim = 0).view(1, -1)
-            elif self.method == 'median':
-                pre_enc = w.median(dim = 0)[0].view(1, -1)
-            else:
-                raise Exception("Invalid aggregation method inside batch of Non instancewise Gumbel")
-
-            self.logit_enc = (self.alpha) * self.logit_enc.detach() + (1-self.alpha) * pre_enc
-
-            gumbel = training_phase
-            subset_indices = sample_subset(self.logit_enc, self.k, self.t, gumbel = gumbel, device = self.device)
-
-            x = x * subset_indices
-        else:
-            mask = torch.zeros_like(x)
-            mask.index_fill_(1, self.markers(), 1)
-
-            x = x * mask
-
-        h1 = self.encoder(x)
-        # en
-        return h1
-
-    def forward(self, x, training_phase = False):
-        h = self.encode(x, training_phase = training_phase)
-        log_probs = self.decoder(h)
-
-        return log_probs
-
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        log_probs = self.forward(x, training_phase = True)
-        loss = self.loss_function(log_probs, y)
-        if torch.isnan(loss).any():
-            raise Exception("nan loss during training")
-        self.log('train_loss', loss)
-        return loss
-
-    def training_epoch_end(self, training_step_outputs):
-        self.t = max(torch.as_tensor(self.min_temp, device = self.device), self.t * self.temperature_decay)
-
-
-        loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
-        self.log("epoch_avg_train_loss", loss)
-        return None
-
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        with torch.no_grad():
-            log_probs = self.forward(x, training_phase = False)
-            loss = self.loss_function(log_probs, y)
-            acc = (y == log_probs.max(dim=1)[1]).float().mean()
-        self.log('val_loss', loss)
-        self.log('val_acc', acc)
-        return loss
-
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr = self.lr)
-
-    def top_logits(self):
-        with torch.no_grad():
-            w = self.logit_enc.clone().view(-1)
-            top_k_logits = torch.topk(w, k = self.k, sorted = True)[1]
-            enc_top_logits = torch.nn.functional.one_hot(top_k_logits, num_classes = self.hparams.input_size).sum(dim = 0)
-
-            #subsets = sample_subset(w, model.k,model.t,True)
-            subsets = sample_subset(w, self.k, self.t, device = self.device, gumbel = False)
-            #max_idx = torch.argmax(subsets, 1, keepdim=True)
-            #one_hot = Tensor(subsets.shape)
-            #one_hot.zero_()
-            #one_hot.scatter_(1, max_idx, 1)
-
-        return enc_top_logits, subsets
-
-    def markers(self):
-        logits = self.top_logits()
-        inds_running_state = torch.argsort(logits[0], descending = True)[:self.k]
-
-        return inds_running_state
-
 class VAE(pl.LightningModule, other_models.BenchmarkableModel):
     def __init__(
         self,
@@ -284,6 +147,7 @@ class VAE(pl.LightningModule, other_models.BenchmarkableModel):
         self.lr = lr
         self.kl_beta = kl_beta
         self.batch_norm = batch_norm
+        self.training_step_outputs = []
 
     def encode(self, x):
         h1 = self.encoder(x)
@@ -603,12 +467,14 @@ class VAE_Gumbel(VAE):
         if torch.isnan(loss).any():
             raise Exception("nan loss during training")
         self.log('train_loss', loss)
+        self.training_step_outputs.append(loss)
         return loss
 
-    def training_epoch_end(self, training_step_outputs):
+    def on_train_epoch_end(self):
         self.t = max(torch.as_tensor(self.min_temp, device = self.device), self.t * self.temperature_decay)
 
-        loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
+        loss = torch.stack([x for x in self.training_step_outputs]).mean()
+        self.training_step_outputs = []
         self.log("epoch_avg_train_loss", loss)
         return None
 
@@ -683,12 +549,14 @@ class VAE_Gumbel_GlobalGate(VAE):
         if torch.isnan(loss).any():
             raise Exception("nan loss during training")
         self.log('train_loss', loss)
+        self.training_step_outputs.append(loss)
         return loss
 
-    def training_epoch_end(self, training_step_outputs):
+    def on_train_epoch_end(self):
         self.t = max(torch.as_tensor(0.001, device = self.device), self.t * self.temperature_decay)
 
-        loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
+        loss = torch.stack([x for x in self.training_step_outputs]).mean()
+        self.training_step_outputs = []
         self.log("epoch_avg_train_loss", loss)
         return None
 
@@ -995,6 +863,7 @@ class MarkerMap(VAE_Gumbel_RunningState):
         if torch.isnan(loss).any():
             raise Exception("nan loss during training")
         self.log('train_loss', loss)
+        self.training_step_outputs.append(loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1150,13 +1019,15 @@ class ConcreteVAE_NMSL(VAE):
         if torch.isnan(loss).any():
             raise Exception("nan loss during training")
         self.log('train_loss', loss)
+        self.training_step_outputs.append(loss)
         return loss
 
-    def training_epoch_end(self, training_step_outputs):
+    def on_train_epoch_end(self):
         self.t = max(torch.as_tensor(self.min_temp, device = self.device), self.t * self.temperature_decay)
 
 
-        loss = torch.stack([x['loss'] for x in training_step_outputs]).mean()
+        loss = torch.stack([x for x in self.training_step_outputs]).mean()
+        self.training_step_outputs = []
         self.log("epoch_avg_train_loss", loss)
         return None
 
@@ -1290,40 +1161,51 @@ def train_model(model, train_dataloader, val_dataloader, gpus = None, tpu_cores 
         for logger in pl_loggers:
             logger.setLevel(logging.ERROR)
 
-    if (val_dataloader is None or len(val_dataloader) == 0):
-        callbacks = None #val_loss early stopping breaks when there is no validation set
-    else:
-        early_stopping_callback = EarlyStopping(monitor='val_loss', mode = 'min', patience = early_stopping_patience)
+    callbacks = None
+    #val_loss early stopping breaks when there is no validation set
+    if not (val_dataloader is None or len(val_dataloader) == 0):
+        early_stopping_callback = EarlyStopping(
+            monitor='val_loss', 
+            mode = 'min', 
+            patience = early_stopping_patience,
+            check_on_train_epoch_end=False, # only check on val_epoch_end
+        )
         callbacks = [early_stopping_callback]
 
-    trainer = pl.Trainer(gpus = gpus, tpu_cores = tpu_cores, min_epochs = min_epochs, max_epochs = max_epochs,
-            auto_lr_find=auto_lr, callbacks=callbacks, precision = precision, logger = verbose,
-            # turn off some summaries
-            enable_model_summary=verbose, enable_progress_bar = verbose, enable_checkpointing=False)
+    if gpus is not None:
+        accelerator = 'gpu'
+        devices = gpus
+    elif tpu_cores is not None:
+        accelerator = 'tpu'
+        devices = tpu_cores
+    else:
+        accelerator = 'auto'
+        devices = 'auto'
+
     if auto_lr:
-        # for some reason plural val_dataloaders
-        lr_finder = trainer.tuner.lr_find(
-            model, 
-            train_dataloaders = train_dataloader, 
-            val_dataloaders = val_dataloader, 
-            max_lr = max_lr, 
-            mode = lr_explore_mode, 
-            num_training = num_lr_rates,
+        lrfinder = pl.callbacks.LearningRateFinder(
+            max_lr=max_lr, 
+            mode=lr_explore_mode, 
+            num_training_steps=num_lr_rates,
+            early_stop_threshold=None,
         )
+        if callbacks is None:
+            callbacks = [lrfinder]
+        else:
+            callbacks.append(lrfinder)
 
-        if verbose:
-            fig = lr_finder.plot(suggest=True)
-            fig.show()
-
-        # Pick point based on plot, or get suggestion
-        new_lr = lr_finder.suggestion()
-
-        if verbose:
-            print("New Learning Rate {}".format(new_lr))
-
-        # update hparams of the model
-        model.hparams.lr = new_lr
-        model.lr = new_lr
+    trainer = pl.Trainer(
+        accelerator=accelerator,
+        devices=devices,
+        min_epochs = min_epochs, 
+        max_epochs = max_epochs,
+        callbacks=callbacks, 
+        precision = precision, 
+        logger = verbose,
+        enable_model_summary=verbose, # turn off some summaries
+        enable_progress_bar = verbose, 
+        enable_checkpointing=False,
+    )
 
     model.train()
     trainer.fit(model, train_dataloader, val_dataloader)
