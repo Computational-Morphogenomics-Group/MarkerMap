@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: markermap
-Version: 1.0.2
+Version: 1.0.3
 Summary: Marker selection library for single-cell RNA-seq data
 Home-page: https://github.com/Computational-Morphogenomics-Group/MarkerMap
 Author: Wilson Gregory, Nabeel Sarwar
@@ -12,8 +12,22 @@ Classifier: Operating System :: OS Independent
 Requires-Python: >=3.7
 Description-Content-Type: text/markdown
 License-File: LICENSE
+Requires-Dist: lassonet
+Requires-Dist: matplotlib
+Requires-Dist: numpy
+Requires-Dist: pandas
+Requires-Dist: pytorch-lightning>=2.0
+Requires-Dist: scanpy
+Requires-Dist: seaborn
+Requires-Dist: torch
+Requires-Dist: umap-learn
+Requires-Dist: cosg
 
 # MarkerMap
+
+<p align="left">
+  <img src="marker_map.png" width="320" title="logo">
+</p>
 
 MarkerMap is a generative model for selecting the most informative gene markers by projecting cells into a shared, interpretable embedding without sacrificing accuracy.
 
@@ -34,8 +48,9 @@ MarkerMap is a generative model for selecting the most informative gene markers 
 ### MacOS
 - The easiest way to install is with pip from https://pypi.org/project/markermap/
 - Simply do `pip install markermap`
+- To use the persist package, you will need to install it following the instructions: https://github.com/iancovert/persist/ 
 - Note: If using on Google Colab, you may have to restart the runtime after installing because `scanpy` installs a newer version of matplotlib than the default one.
-- Note: Currently Smashpy specifies an older version of tensorflow (==2.5.0), so this creates a few funky package disagreements. So far this does not seem to cause any problems.
+- Note: Smashpy specifies an older version of tensorflow (==2.5.0), so this creates installation problems. Thus we do not require installing Smashpy to use the package, but it will need to be installed if you want to compare that method.
 
 ### Windows
 - Coming soon!

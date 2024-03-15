@@ -8,7 +8,6 @@ import scipy.stats as stats
 import anndata
 
 from markermap.vae_models import MarkerMap, train_model
-from markermap.other_models import SmashPyWrapper
 from markermap.utils import (
   get_citeseq,
   get_mouse_brain,
@@ -16,13 +15,14 @@ from markermap.utils import (
   get_zeisel,
   log_and_normalize,
   split_data_into_dataloaders,
+  getRandomSeedsQueue,
 )
 
 #scVI sets the global seeds on import using pytorch's seed_everything which seems to
 #reset numpy's seed everytime a model is run, which is pretty heinous
 #we need a queue to constantly be updating the seeds
 np.random.seed(1729) # for seeded runs, this should determine all the later seeds and be reproducible
-random_seeds_queue = SmashPyWrapper.getRandomSeedsQueue(length=1000)
+random_seeds_queue = getRandomSeedsQueue(length=1000)
 
 import scvi
 scvi.settings.seed = random_seeds_queue.get_nowait()

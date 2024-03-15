@@ -23,8 +23,9 @@ MarkerMap is a generative model for selecting the most informative gene markers 
 ### MacOS
 - The easiest way to install is with pip from https://pypi.org/project/markermap/
 - Simply do `pip install markermap`
+- To use the persist package, you will need to install it following the instructions: https://github.com/iancovert/persist/ 
 - Note: If using on Google Colab, you may have to restart the runtime after installing because `scanpy` installs a newer version of matplotlib than the default one.
-- Note: Currently Smashpy specifies an older version of tensorflow (==2.5.0), so this creates a few funky package disagreements. So far this does not seem to cause any problems.
+- Note: Smashpy specifies an older version of tensorflow (==2.5.0), so this creates installation problems. Thus we do not require installing Smashpy to use the package, but it will need to be installed if you want to compare that method.
 
 ### Windows
 - Coming soon!

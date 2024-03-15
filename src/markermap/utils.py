@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 from collections import defaultdict
 import time
+import queue
+
 
 import torch
 from torch import nn
@@ -27,6 +29,20 @@ class ExperimentIndices:
     def __init__(self, train_indices, val_indices, test_indices):
         pass
 
+def getRandomSeedsQueue(length = 400):
+    """
+    SmashPy sets the numpy random seed to 42, so we generate a queue and pass it to the benchmarker to ensure we
+    aren't always using the same seed
+    args:
+        length (int): length of the queue, should be at least num_times * benchmark_range * # smashpy models
+    returns:
+        (SimpleQueue): of random seeds between 1 and 1000000
+    """
+    random_seeds_queue = queue.SimpleQueue()
+    for seed in np.random.randint(low=1, high = 1000000, size = length):
+        random_seeds_queue.put(seed)
+
+    return random_seeds_queue
 
 ####### Metrics
 

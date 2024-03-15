@@ -2,9 +2,9 @@ lassonet
 matplotlib
 numpy
 pandas
-pytorch-lightning
+pytorch-lightning>=2.0
 scanpy
 seaborn
-smashpy>=0.1.2
 torch
 umap-learn
+cosg
