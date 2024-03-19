@@ -45,7 +45,7 @@ train_dataloader, val_dataloader = MarkerMap.prepareData(
 
 # define the marker map, we use a loss_tradeoff of 0 to only use the supervised training loss
 supervised_marker_map = MarkerMap(
-    adata.X.shape[1],
+    adata.shape[1],
     hidden_layer_size,
     z_size,
     len(adata.obs[group_by].unique()),

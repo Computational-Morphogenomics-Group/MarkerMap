@@ -13,7 +13,6 @@ hidden_layer_size = 64
 max_epochs = 100
 
 file_path = 'data/cite_seq/CITEseq.h5ad'
-file_path = '/data/wgregor4/markermap/cite_seq/CITEseq.h5ad'
 
 #get data
 group_by = 'annotation'
