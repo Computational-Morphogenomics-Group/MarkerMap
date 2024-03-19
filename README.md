@@ -45,9 +45,8 @@ import scanpy as sc
 from markermap.vae_models import MarkerMap, train_model
 from markermap.utils import (
     new_model_metrics,
-    parse_adata,
     plot_confusion_matrix,
-    split_data_into_dataloaders,
+    split_data,
 )
 ```
 
@@ -56,42 +55,59 @@ Define some parameters that we will use when creating the MarkerMap.
 * z_size is the dimension of the latent space in the variational auto-encoder. We always use 16
 * hidden_layer_size is the dimension of the hidden layers in the auto-encoder that come before and after the latent space layer. This is dependent on the data, a good rule of thumb is ~10% of the dimension of the input data. For the CITE-seq data which has 500 columns, we will use 64
 * k is the number of markers to extract
+* batch_size is the model batch size
 * Set the file_path to wherever your data is
 
 ```
 z_size = 16
 hidden_layer_size = 64
 k=50
+batch_size = 64
 
 file_path = 'data/cite_seq/CITEseq.h5ad'
 ```
 
 #### Data
-Set file_path to wherever your data is located. We then read in the data using scanpy and break it into X and y using the parse_data function. The text labels in adata.obs['annotation'] will be converted to number labels so that MarkerMap can use them properly.
+Set file_path to wherever your data is located. We then read in the data using scanpy which returns an AnnData object. The gene data is stored in adata.X, and the cell labels are stored in adata.obs['names']. For consistency across different datasets, we store the labels in the adata.obs['annotation'], but this can be controlled by the `group_by` variable.
 
-We then split the data into training, validation, and test sets with a 70%, 10%, 20% split. MarkerMap uses a validation set during the training process.
+We then split the data into training, validation, and test sets with a 70%, 10%, 20% split. We can use MarkerMap.prepareData to construct the train_dataloader and val_dataloader that will be used during training.
 
 ```
-file_path = '../data/cite_seq/CITEseq.h5ad'
-
+group_by = 'annotation'
 adata = sc.read_h5ad(file_path)
-adata.obs['annotation'] = adata.obs['names']
-X, y, encoder = parse_adata(adata)
+adata.obs[group_by] = adata.obs['names']
 
-train_dataloader, val_dataloader, _, train_indices, val_indices, test_indices = split_data_into_dataloaders(
-    X,
-    y,
-    train_size=0.7,
-    val_size=0.1,
+# we will use 70% training data, 10% vaidation data during the training of the marker map, then 20% for testing
+train_indices, val_indices, test_indices = split_data(
+    adata.X,
+    adata.obs[group_by],
+    [0.7, 0.1, 0.2],
 )
-X.shape
+train_val_indices = np.concatenate([train_indices, val_indices])
+
+train_dataloader, val_dataloader = MarkerMap.prepareData(
+    adata,
+    train_indices,
+    val_indices,
+    group_by,
+    None, #layer, just use adata.X
+    batch_size=batch_size,
+)
 ```
 
 #### Define and Train the Model
 Now it is time to define the MarkerMap. There are many hyperparameters than can be tuned here, but the most important are k and the loss_tradeoff. The k parameter may require some domain knowledge, but it is fairly easy to benchmark for different levels of k, as we will see in the later examples. Loss_tradeoff is also important, see the paper for a further discussion. In general, we have 3 levels, 0 (supervised only), 0.5 (mixed supervised-unsupervised) and 1 (unsupervised only). This step may take a couple of minutes.
 
 ```
-supervised_marker_map = MarkerMap(X.shape[1], hidden_layer_size, z_size, len(np.unique(y)), k, loss_tradeoff=0)
+supervised_marker_map = MarkerMap(
+    adata.X.shape[1],
+    hidden_layer_size,
+    z_size,
+    len(adata.obs[group_by].unique()),
+    k,
+    loss_tradeoff=0,
+)
+
 train_model(supervised_marker_map, train_dataloader, val_dataloader)
 ```
 
@@ -100,20 +116,20 @@ Finally, we test the model. The new_model_metrics function trains a simple model
 
 ```
 misclass_rate, test_rep, cm = new_model_metrics(
-    X[np.concatenate([train_indices, val_indices]), :],
-    y[np.concatenate([train_indices, val_indices])],
-    X[test_indices, :],
-    y[test_indices],
+    adata[train_val_indices, :].X,
+    adata[train_val_indices, :].obs[group_by],
+    adata[test_indices, :].X,
+    adata[test_indices, :].obs[group_by],
     markers = supervised_marker_map.markers().clone().cpu().detach().numpy(),
 )
 
 print(misclass_rate)
 print(test_rep['weighted avg']['f1-score'])
-plot_confusion_matrix(cm, encoder.classes_)
+plot_confusion_matrix(cm, adata.obs[group_by].unique())
 ```
 
 ### Benchmark Example <a name="benchmark-example"/>
-Now we will do an example where we use the benchmarking tools of the package. Follows the steps from the Simple Example through the data section, then pick up here. Alternatively, checkout out `scripts/quick_start_benchmark.py` for a python script or `notebooks/quick_start_benchmark.ipynb` for a Jupyter Notebook.
+Now we will do an example where we use the benchmarking tools of the package. Follow the steps from the Simple Example through the data section, then pick up here. Alternatively, checkout out `scripts/quick_start_benchmark.py` for a python script or `notebooks/quick_start_benchmark.ipynb` for a Jupyter Notebook.
 
 #### Define the Models
 Now it is time to define all the models that we are benchmarking. For this tutorial, we will benchmark the three versions of MarkerMap: Supervised, Mixed, and Unsupervised. Each model in this repository comes with a function `getBenchmarker` where we specify all the parameters used for constructing the model and all the parameters used for training the model. The benchmark function will then run and evaluate them all. For this tutorial we will also specify a train argument, `max_epochs` which limits the number of epochs during training.
@@ -121,11 +137,11 @@ Now it is time to define all the models that we are benchmarking. For this tutor
 ```
 supervised_marker_map = MarkerMap.getBenchmarker(
   create_kwargs = {
-    'input_size': X.shape[1],
+    'input_size': adata.shape[1],
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
-    'num_classes': len(np.unique(y)),
-    'k': k_range[0], # because we are benchmarking over k, this will get replaced by the benchmark function
+    'num_classes': len(adata.obs[group_by].unique()),
+    'k': k, # because we are benchmarking over k, this will be overwritten
     'loss_tradeoff': 0,
   },
   train_kwargs = {
@@ -135,11 +151,11 @@ supervised_marker_map = MarkerMap.getBenchmarker(
 
 mixed_marker_map = MarkerMap.getBenchmarker(
   create_kwargs = {
-    'input_size': X.shape[1],
+    'input_size': adata.shape[1],
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
-    'num_classes': len(np.unique(y)),
-    'k': k_range[0],
+    'num_classes': len(adata.obs[group_by].unique()),
+    'k': k, # because we are benchmarking over k, this will be overwritten
     'loss_tradeoff': 0.5,
   },
   train_kwargs = {
@@ -149,11 +165,11 @@ mixed_marker_map = MarkerMap.getBenchmarker(
 
 unsupervised_marker_map = MarkerMap.getBenchmarker(
   create_kwargs = {
-    'input_size': X.shape[1],
+    'input_size': adata.shape[1],
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
     'num_classes': None, #since it is unsupervised, we can just say that the number of classes is None
-    'k': k_range[0],
+    'k': k, # because we are benchmarking over k, this will be overwritten
     'loss_tradeoff': 1.0,
   },
   train_kwargs = {
@@ -177,12 +193,12 @@ results, benchmark_label, benchmark_range = benchmark(
     'Unsupervised Marker Map': unsupervised_marker_map,
     'Supervised Marker Map': supervised_marker_map,
     'Mixed Marker Map': mixed_marker_map,
-    'Baseline': RandomBaseline.getBenchmarker(train_kwargs = { 'k': k_range[0] }),
+    'Baseline': RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
   },
   1, # num_times, how many different random train/test splits to run the models on
-  X,
-  y,
+  adata,
   benchmark='k',
+  group_by=group_by,
   benchmark_range=k_range,
 )
 
