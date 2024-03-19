@@ -1,9 +1,8 @@
-import numpy as np
 import scanpy as sc
 
 from markermap.other_models import RandomBaseline
 from markermap.vae_models import MarkerMap
-from markermap.utils import benchmark, parse_adata, plot_benchmarks
+from markermap.utils import benchmark, plot_benchmarks
 
 # Set parameters
 # z_size is the dimensionality of the latent space of the VAE
@@ -14,20 +13,49 @@ hidden_layer_size = 64
 max_epochs = 100
 
 file_path = 'data/cite_seq/CITEseq.h5ad'
+file_path = '/data/wgregor4/markermap/cite_seq/CITEseq.h5ad'
 
 #get data
+group_by = 'annotation'
 adata = sc.read_h5ad(file_path)
-adata.obs['annotation'] = adata.obs['names']
-X, y, encoder = parse_adata(adata)
+adata.obs[group_by] = adata.obs['names']
 
 # The range of k values to run the benchmark on
 k_range = [10, 25, 50]
 k = k_range[0]  #will be unused since we are benchmarking over k_range
 
 # Declare models
+supervised_marker_map = MarkerMap.getBenchmarker(
+  create_kwargs = {
+    'input_size': adata.shape[1],
+    'hidden_layer_size': hidden_layer_size,
+    'z_size': z_size,
+    'num_classes': len(adata.obs[group_by].unique()),
+    'k': k,
+    'loss_tradeoff': 0,
+  },
+  train_kwargs = {
+    'max_epochs': max_epochs,
+  }
+)
+
+mixed_marker_map = MarkerMap.getBenchmarker(
+  create_kwargs = {
+    'input_size': adata.shape[1],
+    'hidden_layer_size': hidden_layer_size,
+    'z_size': z_size,
+    'num_classes': len(adata.obs[group_by].unique()),
+    'k': k,
+    'loss_tradeoff': 0.5,
+  },
+  train_kwargs = {
+    'max_epochs': max_epochs,
+  }
+)
+
 unsupervised_marker_map = MarkerMap.getBenchmarker(
   create_kwargs = {
-    'input_size': X.shape[1],
+    'input_size': adata.shape[1],
     'hidden_layer_size': hidden_layer_size,
     'z_size': z_size,
     'num_classes': None,
@@ -39,34 +67,6 @@ unsupervised_marker_map = MarkerMap.getBenchmarker(
   },
 )
 
-supervised_marker_map = MarkerMap.getBenchmarker(
-  create_kwargs = {
-    'input_size': X.shape[1],
-    'hidden_layer_size': hidden_layer_size,
-    'z_size': z_size,
-    'num_classes': len(np.unique(y)),
-    'k': k,
-    'loss_tradeoff': 0,
-  },
-  train_kwargs = {
-    'max_epochs': max_epochs,
-  }
-)
-
-mixed_marker_map = MarkerMap.getBenchmarker(
-  create_kwargs = {
-    'input_size': X.shape[1],
-    'hidden_layer_size': hidden_layer_size,
-    'z_size': z_size,
-    'num_classes': len(np.unique(y)),
-    'k': k,
-    'loss_tradeoff': 0.5,
-  },
-  train_kwargs = {
-    'max_epochs': max_epochs,
-  }
-)
-
 results, benchmark_label, benchmark_range = benchmark(
   {
     'Unsupervised Marker Map': unsupervised_marker_map,
@@ -75,10 +75,11 @@ results, benchmark_label, benchmark_range = benchmark(
     'Baseline': RandomBaseline.getBenchmarker(train_kwargs = { 'k': k }),
   },
   1, # num_times, how many different random train/test splits to run the models on
-  X,
-  y,
+  adata,
   benchmark='k',
+  group_by=group_by,
   benchmark_range=k_range,
 )
 
+print(results)
 plot_benchmarks(results, benchmark_label, benchmark_range, mode='accuracy')
