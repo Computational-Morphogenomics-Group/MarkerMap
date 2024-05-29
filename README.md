@@ -213,6 +213,10 @@ plot_benchmarks(results, benchmark_label, benchmark_range, mode='accuracy')
   - label_error: Given a range of percentages, pick that percent of points in the training + validation set and set their label to a random label form among the existing labels.
 - To load the data, you can make use of the following functions: `get_citeseq`, `get_mouse_brain`, `get_paul`, and `get_zeisel`. Note that both `get_mouse_brain` and `get_paul` do some pre-processing, including removing outliers and normalizing the data in the case of Mouse Brain.
 
+## The Sharp Bits
+
+- The models in this repository expect the data, e.g. `adata.X` to be in a dense array, but sometimes data loaded by AnnData is in a sparse array. To convert, merely do `adata.X = adata.X.toarray()`.
+
 ## For Developers <a name="for-developers"/>
 
 - You will want to set up this library as an editable install.

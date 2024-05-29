@@ -2,6 +2,7 @@ lassonet
 matplotlib
 numpy
 pandas
+scipy
 pytorch-lightning>=2.0
 scanpy
 seaborn

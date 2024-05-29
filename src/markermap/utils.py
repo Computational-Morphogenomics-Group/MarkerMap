@@ -4,7 +4,7 @@ import pandas as pd
 from collections import defaultdict
 import time
 import queue
-
+import scipy
 
 import torch
 from torch import nn
@@ -1092,6 +1092,9 @@ def split_data_into_dataloaders_no_test(X, Y, train_size, batch_size = 64, num_w
     """
     if Y is not None:
         assert len(X) == len(Y)
+    assert not scipy.sparse.issparse(X), f'split_data_into_dataloaders_no_test: Input data is in ' \
+        'a sparse array, but the models work on dense arrays. Do "adata.X = adata.X.toarray()"' \
+        ' to convert.'
     assert batch_size > 1
     
     assert train_size > 0
@@ -1150,6 +1153,9 @@ def split_data(
             That set of data must have at least that number of representatives of each group in y
     """
     assert np.sum(size_percents) <= 1
+    assert not scipy.sparse.issparse(X), f'split_data: Input data is in a sparse ' \
+        'array, but the models work on dense arrays. Do "adata.X = adata.X.toarray()"' \
+        ' to convert.'
     assert len(X) == len(y)
     if min_groups is not None:
         assert len(size_percents) == len(min_groups)
@@ -1226,6 +1232,9 @@ def split_data_into_dataloaders(X, y, train_size, val_size, batch_size = 64, num
         seed (int): defaults to none, set to reproduce experiments with same train/val split
     """
     assert train_size + val_size < 1
+    assert not scipy.sparse.issparse(X), f'split_data_into_dataloaders: Input data is in a sparse ' \
+        'array, but the models work on dense arrays. Do "adata.X = adata.X.toarray()"' \
+        ' to convert.'
     assert len(X) == len(y)
     assert batch_size > 1
     
