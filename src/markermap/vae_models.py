@@ -756,7 +756,10 @@ class VAE_Gumbel_RunningState(VAE_Gumbel):
         )
         model = cls(**{**create_kwargs, 'k': k}) if k else cls(**create_kwargs)
         train_model(model, train_dataloader, val_dataloader, **train_kwargs)
-        return model.markers().clone().cpu().detach().numpy()
+        return {
+            'markers': model.markers().clone().cpu().detach().numpy(),
+            'trained_model': model,
+        }
 
 
 # not doing multiple inheritance because GumbelClassifier is repeating itself
