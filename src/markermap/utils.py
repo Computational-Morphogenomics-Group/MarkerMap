@@ -183,14 +183,18 @@ def new_model_metrics(train_x, train_y, test_x, test_y, markers = None, model = 
     misclass_rate = 1 - accuracy_score(test_y, pred_y)
     return misclass_rate, test_rep, cm
 
-def recon_model_metrics(train_x, test_x, markers, model=None):
+def recon_model_metrics(train_x, test_x, markers, model=None, pretrained_model=False):
     if model is None:
         model = LinearRegression()
 
     markers_train_x = train_x[:, markers]
     markers_test_x = test_x[:, markers]
-    reg = model.fit(markers_train_x, train_x)
-    test_recon_x = reg.predict(markers_test_x)
+
+    if pretrained_model:
+        test_recon_x = model.get_reconstruction(test_x)
+    else:
+        reg = model.fit(markers_train_x, train_x)
+        test_recon_x = reg.predict(markers_test_x)
 
     l2_loss = np.mean((test_x - test_recon_x)**2) 
     l1_loss = np.mean(np.abs(test_x - test_recon_x))
@@ -320,7 +324,7 @@ def benchmark(
                     classifier_train_group_by = group_by
 
                 start_time = time.time()
-                markers = model_functional(
+                model_functional_results = model_functional(
                     adata,
                     model_group_by,
                     batch_size,
@@ -328,6 +332,13 @@ def benchmark(
                     val_indices,
                     k=val if benchmark == 'k' else None,
                 )
+                # some benchmarker_functionals return the model as well as the selected markers
+                if type(model_functional_results) == dict:
+                    trained_model = model_functional_results['trained_model']
+                    markers = model_functional_results['markers']
+                else:
+                    markers = model_functional_results
+
                 model_results['time'].append(time.time() - start_time)
 
                 if (eval_type == 'classify'):
@@ -348,6 +359,15 @@ def benchmark(
                         markers,
                         eval_model,
                     )
+                    print('linreg err', l2_error, l1_error)
+                    l2_error, l1_error = recon_model_metrics(
+                        adata[train_val_indices, :].X,
+                        adata_test.X,
+                        markers,
+                        trained_model,
+                        pretrained_model=True,
+                    )
+                    print('model err', l2_error, l1_error)
                     model_results['l2'].append(l2_error)
                     model_results['l1'].append(l1_error)
 

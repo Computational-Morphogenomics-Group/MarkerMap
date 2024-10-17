@@ -135,7 +135,7 @@ Now we will do an example where we use the benchmarking tools of the package. Fo
 Now it is time to define all the models that we are benchmarking. For this tutorial, we will benchmark the three versions of MarkerMap: Supervised, Mixed, and Unsupervised. Each model in this repository comes with a function `getBenchmarker` where we specify all the parameters used for constructing the model and all the parameters used for training the model. The benchmark function will then run and evaluate them all. For this tutorial we will also specify a train argument, `max_epochs` which limits the number of epochs during training.
 
 ```
-supervised_marker_map = MarkerMap.getBenchmarker(
+unsupervised_marker_map = MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': adata.shape[1],
     'hidden_layer_size': hidden_layer_size,
@@ -146,10 +146,10 @@ supervised_marker_map = MarkerMap.getBenchmarker(
   },
   train_kwargs = {
     'max_epochs': max_epochs,
-  }
+  },
 )
 
-mixed_marker_map = MarkerMap.getBenchmarker(
+supervised_marker_map = MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': adata.shape[1],
     'hidden_layer_size': hidden_layer_size,
@@ -163,7 +163,7 @@ mixed_marker_map = MarkerMap.getBenchmarker(
   }
 )
 
-unsupervised_marker_map = MarkerMap.getBenchmarker(
+mixed_marker_map = MarkerMap.getBenchmarker(
   create_kwargs = {
     'input_size': adata.shape[1],
     'hidden_layer_size': hidden_layer_size,
@@ -174,7 +174,7 @@ unsupervised_marker_map = MarkerMap.getBenchmarker(
   },
   train_kwargs = {
     'max_epochs': max_epochs,
-  },
+  }
 )
 ```
 
